@@ -1,0 +1,269 @@
+
+
+Document version 1.0  •  System Design  •  MediLens Engineering
+
+1. Design Philosophy & System Constraints
+
+1.1 Scale Targets
+
+1.2 Five Product Modules at Scale
+Each module is an independently deployable, independently scalable service. Shared nothing except the message queue and the encrypted user profile store.
+
+2. System Architecture — Seven Layers
+Every request flows through all seven layers in order. Each layer has a single responsibility and can fail independently without cascading failures.
+
+2.1 Layer Overview
+
+2.2 Full Technology Stack
+
+3. Frontend Architecture
+3.1 React Native (Mobile — Primary Target)
+Component structure
+Navigation: React Navigation 7 with deep-link support for caregiver share flows
+Screens: OnboardingScreen, MedListScreen, ScanScreen, ResultScreen, VaultScreen, NutritionScreen, RadarScreen, CareScreen
+Shared components: AccessibleButton (min 44×44px tap target), VoiceOutput, WarningCard, DrugTag, LoadingPulse
+State management: Zustand (lightweight) with React Query for server state + async storage persistence
+
+Camera pipeline
+expo-camera for live feed; expo-barcode-scanner for GS1 DataMatrix decode (on-device, no server call)
+Frame captured at 1080p, JPEG-compressed client-side to ~200KB before upload — cuts AI payload by 60%
+ML Kit on-device text detector used as bounding-box hint to auto-crop label region before upload
+No raw image stored on device beyond the current session. Cleared on app background after 60 seconds
+
+Accessibility — non-negotiable for this user demographic
+Dynamic Type support (iOS) and Android font scaling — all text sizes relative, never fixed pixel
+Screen reader: every interactive element has accessibilityLabel + accessibilityHint
+High-contrast mode detected from OS; WCAG AAA minimum contrast ratio (7:1) enforced in design system
+Voice output (expo-speech) fires automatically on scan result — no tap required. Tap-to-replay button always visible
+Minimum tap target 44×44pt on every interactive element — critical for elderly users with motor impairment
+
+Offline strategy
+React Query with @tanstack/query-async-storage-persister: last 10 scan results cached locally (encrypted)
+Medication list stored in expo-secure-store (Keychain/Keystore — never AsyncStorage which is plaintext)
+Network unreachable → cached result shown with "Last scan from [date]" badge. Never silently fails
+Health Vault documents cached as encrypted blobs for offline reading
+
+Client-side security
+Certificate pinning via react-native-ssl-pinning — rejects MITM proxies
+JWT stored in expo-secure-store only. Never in AsyncStorage, never in Redux state that gets persisted
+Zero medication names or image data sent to crash reporters (Sentry beforeSend scrubbing hook)
+Jailbreak/root detection: warning shown, session flagged in audit log. Non-blocking but recorded
+
+3.2 Next.js 15 Web PWA
+App Router with React Server Components for all non-interactive pages (landing, blog, legal)
+Scan page is "use client" — camera APIs require browser context; no SSR for camera screen
+NextAuth.js for authentication (OAuth2 PKCE flow, same tokens as mobile)
+Service Worker: offline fallback page, background sync for pending scan uploads
+Core Web Vitals targets enforced in CI: LCP < 2.5s, CLS < 0.1, INP < 200ms via Lighthouse CI
+Bundle splitting: auth chunk, scan chunk, vault chunk, nutrition chunk — lazy loaded on route entry
+
+4. API Gateway, Networking & Load Balancing
+4.1 Rate Limiting Strategy
+Three-tier rate limiting enforced in Redis using sliding window algorithm. Every response includes rate limit headers regardless of limit status.
+
+
+Rate limit counters stored in Redis with key pattern: rl:{user_id}:{endpoint_hash}:{window_start}. Headers on every response: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset.
+
+4.2 Authentication Flow
+Client sends Authorization: Bearer <access_jwt> on every non-public request
+Kong validates JWT signature against public key fetched from Auth service JWKS endpoint (cached 5 minutes in Kong)
+Expired token → 401 with WWW-Authenticate header. Client silently exchanges refresh token for new access token
+Valid JWT claims injected as upstream request headers: X-User-ID, X-User-Tier, X-User-Region, X-Session-ID
+Downstream services trust only these injected headers — they never validate JWTs themselves (zero-trust internal)
+
+4.3 API Routes
+
+4.4 Load Balancing
+
+Health check: HTTP GET /health every 10 seconds. Unhealthy after 3 consecutive failures. Recovered after 2 consecutive successes. Unhealthy pod receives zero traffic immediately — no gradual reduction.
+
+4.5 Security Headers & CORS
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+Content-Security-Policy: default-src 'self'; img-src 'self' blob: data:; script-src 'self'; connect-src 'self' api.medilens.app;
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+Permissions-Policy: camera=self, microphone=self, geolocation=self
+CORS allowed origins: medilens.app, *.medilens.app  (no wildcard in production)
+
+5. Backend Microservices
+5.1 Service Specifications
+
+5.2 Async Request Pattern — The Critical Design Decision
+Every AI-heavy request (scan, vault parse, nutrition analysis, care summary) uses the 202/poll pattern. This decouples AI processing time (1–25 seconds) from the HTTP request, prevents timeout errors under load, and allows the AI worker pool to scale independently.
+
+Scan request lifecycle
+Client POST /v1/scan/analyze (base64 image + med list) → Kong validates → Scan Service
+Scan Service: generate scan_id (UUID v7), store image in S3 (24h lifecycle), publish job to Redis Stream {scan_id, s3_key, user_id, meds}
+Scan Service returns 202 Accepted immediately: { scan_id, poll_url, estimated_seconds: 5 }
+AI Worker pod consumes job from Redis Stream consumer group
+Worker downloads image from S3, sends to Gemma 4 multimodal API (image + prompt)
+Interaction Service queried in parallel (does not block AI call)
+Both results merged, passed through safety guardrail filter
+Merged result stored in Redis: result:{scan_id} with 10-minute TTL
+Client polls GET /v1/scan/result/{scan_id} every 1.5 seconds → 202 (processing) or 200 (done) or 410 (expired)
+On 200 delivery: image deleted from S3 immediately, result TTL extended to 5 minutes for retry safety
+
+5.3 Circuit Breaker Configuration
+Every external dependency (Gemma API, OpenFDA, Google Maps, GS1 data) has a circuit breaker. The pattern is: Closed (normal) → Open (failing, use fallback) → Half-Open (probe recovery) → Closed.
+
+
+6. AI Pipeline — All Five Modules
+6.1 Core Scan Pipeline
+Step 1 — Client-side: Image compressed to JPEG 85%, max 1080p. Image rejected client-side if any dimension < 300px ("Move closer to label")
+Step 2 — On-device: GS1 DataMatrix barcode decode attempted (ML Kit, zero network). If successful, fetch official ePIL from manufacturer API to give AI authoritative ground truth
+Step 3 — Server: Image + ePIL (if available) + patient med list sent to Gemma 4 multimodal. Temperature: 0.1. Max tokens: 600. responseMimeType: application/json enforced
+Step 4 — Guardrail filter: Every response checked before delivery (see Section 8)
+Step 5 — Fallback chain: Gemma 4 → Gemini 2.0 Flash → Google Vision OCR (no AI interpretation) → GS1 data only → raw OCR text
+
+6.2 Health Vault Pipeline (Document AI)
+PDF/image uploaded → S3 (encrypted at rest). Background job queued in Redis Stream
+Vault Worker extracts text: PDF.js for text-layer PDFs, Google Document AI for scanned documents
+Extracted text sent to Gemma 4 with structured extraction prompt: diagnoses, lab values, medications, allergies, doctor names, dates
+Extracted entities stored as encrypted JSON in PostgreSQL, linked to user_id. Never stored as raw text
+On next scan: user's Health Memory (diagnoses + allergies) injected into scan prompt for context-aware risk detection
+Documents themselves stored in S3 (user-owned, encrypted with user-specific KMS key). MediLens never reads document content after extraction
+
+6.3 Food as Medicine Pipeline
+User photographs meal → image sent to Nutrition Service (same async 202/poll pattern as scan)
+Gemma 4 identifies food items in image with confidence scores. Low-confidence items flagged as "possibly [food]"
+Identified foods cross-referenced against USDA FoodData Central API for nutrient composition
+Nutrient data cross-referenced against user's current medication list for dietary interactions
+Known food-drug interactions (warfarin + Vitamin K, MAOIs + tyramine, statins + grapefruit, etc.) stored in a curated static table + OpenFDA dietary supplement database
+Result: identified foods + nutrient summary + any dietary warnings tied to specific medications
+
+6.4 Care Team Summary Pipeline
+On demand (triggered by user before appointment): aggregates last 30 days of data
+Data sources aggregated (all from encrypted local DB): scan history (opt-in), nutrition warnings logged, missed dose events, symptom logs (future feature)
+Gemma 4 given structured data (no raw images) with prompt: "Generate a concise pre-visit summary a doctor can read in 2 minutes"
+Output: bulleted summary with date-stamped events, medication changes, and flagged interactions observed during the period
+Summary generated fresh on each request — never stored. Exported as PDF (FHIR Document format) for sharing with provider
+
+6.5 AI Cost Management at 100M Requests
+
+Cache key: SHA-256 hash of (GTIN barcode OR image perceptual hash) + medication list hash. Same bottle, same medications = identical cache key. TTL: 4 hours for drug info (rarely changes). Cache stored in Redis with lazy eviction.
+
+7. Database Architecture
+
+7.1 PostgreSQL 16 — Schema Overview
+
+7.2 Redis 7 — Key Patterns & TTLs
+
+7.3 S3 Bucket Structure & Lifecycle Rules
+
+7.4 PostgreSQL HA & Resilience
+Topology: 1 primary (Multi-AZ RDS) + 2 read replicas (ap-south-1a, ap-south-1b)
+Write operations → primary only. Read-heavy queries (medication list, vault metadata, audit log) → read replica
+Automatic failover via RDS Multi-AZ in < 60 seconds. Application uses Route 53 CNAME that re-resolves on failover
+Connection pooling via PgBouncer in transaction mode (max_pool_size: 100 per service). Prevents connection exhaustion at 100M scale
+Continuous WAL archiving to S3 (point-in-time recovery to any second). RTO < 1 hour, RPO < 5 minutes
+Schema migrations: Alembic with reversible-only migrations. Zero-downtime pattern: add nullable column → deploy code → backfill → add constraint → separate deploy
+
+8. Security Architecture
+8.1 Authentication & Token Architecture
+
+8.2 Zero-Trust Service-to-Service
+All internal service communication uses mTLS (mutual TLS) enforced by AWS App Mesh (Envoy sidecar)
+Each service has a client certificate issued by an internal CA (AWS ACM Private CA). Certificates auto-rotated every 30 days
+No service trusts any other by IP address. Trust is certificate identity only
+Kong injects X-User-ID, X-User-Tier, X-User-Region as upstream headers. Downstream services read only these — never re-validate JWTs
+Service-to-service calls that fail mTLS handshake are rejected at the mesh layer before reaching application code
+
+8.3 OWASP Top 10 Mitigations
+
+8.4 Secrets Management
+All secrets in AWS Secrets Manager. Injected into Kubernetes pods at runtime via External Secrets Operator — no secrets in Dockerfile, .env, or environment variables in plaintext
+Database credentials rotated automatically every 30 days by Secrets Manager Lambda rotator
+API keys (Gemini, OpenFDA, Google Maps) stored in Secrets Manager, accessed via IAM role attached to specific pods
+Secret access audited in AWS CloudTrail — every GetSecretValue call logged
+KMS keys: separate CMK per data classification tier (PHI-high, PHI-low, non-PHI). Key policies enforce least-privilege
+
+8.5 Supply Chain Security
+SBOM (Software Bill of Materials) generated on every release using Syft, signed with Sigstore/cosign
+Container images signed and verified on admission by Kubernetes admission webhook
+Base images: distroless Python (gcr.io/distroless/python3) + Alpine Node — minimal attack surface
+All dependencies pinned to exact versions with hash verification in requirements.txt and package-lock.json
+Quarterly penetration test by external security firm. Bug bounty program on HackerOne (scope: all production endpoints)
+
+9. Data Guardrails & User Safety
+
+9.1 AI Output Safety Filter (Non-Bypassable)
+Every AI response for every module passes through the safety filter before delivery. It runs server-side after the AI call and before the result is written to Redis. The AI model cannot remove or modify this layer.
+
+
+9.2 Mandatory Disclaimer — Always Appended
+The speak_text field for every scan result ends with the following sentence, appended server-side after the guardrail filter. This cannot be overridden by the AI model, by user preference, or by client-side code:
+
+
+9.3 Privacy Architecture — What Is and Is Not Stored
+
+10. Observability
+10.1 Three Pillars
+Traces — OpenTelemetry
+Every request gets a trace_id (W3C TraceContext format) at Kong. Propagated through every service call, Redis operation, S3 call, and external AI API call
+Traces exported to AWS X-Ray (or Jaeger self-hosted). Full request waterfall visible per trace_id
+Slow trace alerting: any trace exceeding 10s triggers a Slack notification to the on-call engineer
+AI pipeline traces include: queue wait time, AI API latency, guardrail filter duration, total wall time
+
+Metrics — Prometheus + Grafana
+Key SLO dashboards: API error rate (SLO: < 0.1%), AI pipeline latency P95 (SLO: < 8s), cache hit rate (target: > 35%), circuit breaker state per dependency
+Business metrics (non-PHI): scans per hour, vault uploads per hour, nutrition analyses per hour, pharmacy radar queries per region
+Anomaly detection: Grafana alerting on 3σ deviation from rolling 7-day baseline. Prevents alert fatigue from known traffic patterns
+On-call rotation via PagerDuty: P0 (user-facing failure in core flow) = 5-minute SLA. P1 (degraded, fallback active) = 30-minute SLA
+
+Logs — Structured JSON + PHI Redaction
+All services log structured JSON with fields: trace_id, service, level, message, duration_ms, user_tier (no user_id in logs)
+PHI redaction middleware runs before any log write. Medication names replaced with [REDACTED_MED]. Image references replaced with [IMAGE_REF]
+AI prompt/response content: never logged. Only latency, status code, and cache hit/miss logged
+Log retention: 90 days hot (CloudWatch/Datadog), 1 year cold (S3 Glacier) for compliance
+
+10.2 SLO Definitions
+
+11. Deployment, Patching & Operations
+11.1 CI/CD Pipeline
+Developer pushes to feature branch → GitHub Actions triggers: lint, type-check, unit tests, OWASP ZAP scan, pip-audit/npm-audit
+PR merged to main → integration tests, container build, Snyk image scan, Lighthouse CI, SBOM generation
+Tagged release → ArgoCD detects new image tag in Helm values → applies rolling update to staging cluster
+Staging smoke test (automated, 5 minutes): health check all services, run 10 real scan requests against staging Gemma endpoint
+Manual approval gate → ArgoCD promotes to production cluster
+Rollback: revert the Helm values commit → ArgoCD applies previous state in < 2 minutes
+
+11.2 Zero-Downtime Deployment
+Kubernetes rolling update: maxUnavailable: 0, maxSurge: 1. New pod must pass readiness probe before old pod is terminated
+Readiness probe: HTTP GET /health returning 200 with all dependencies confirmed (DB connection, Redis connection, AI API reachable)
+Pre-stop hook: 30-second grace period to drain in-flight requests before pod receives SIGTERM
+Database migrations run as separate Kubernetes Job before deployment begins. Migrations are always backward-compatible with the previous version
+
+11.3 Feature Flags — LaunchDarkly
+New AI prompt versions, new drug databases, new interaction detection logic — all behind feature flags. Never a direct code deploy for AI behavior changes
+Gradual rollout: 1% → 5% → 20% → 50% → 100% with auto-rollback if error rate on flagged users exceeds 2× control group
+Emergency kill switch: disable any feature for all users in < 30 seconds without a code deploy
+
+11.4 Security Patching Cadence
+
+12. Module Integration & Data Flow
+12.1 How Modules Share Data
+Modules never call each other directly. All cross-module data sharing happens through the shared encrypted user profile in PostgreSQL. This is the single source of truth for user health context.
+
+
+12.2 Caregiver Access Architecture
+Caregiver account linked via caregiver_links table with permissions: read_adherence, read_alerts, no_read_documents
+Caregiver receives push notification (FCM/APNS) when: adherence drops below 80% for 3 days, high-risk medication interaction detected, severe dietary warning triggered
+Caregiver can view: adherence timeline, alert history. Cannot view: scan images, vault documents, medication names (privacy boundary)
+Caregiver link expires after 1 year by default. User can revoke instantly. All caregiver access logged in audit_log
+
+13. Compliance & Regulatory Posture
+13.1 Regulatory Framework
+
+13.2 Right to Erasure Implementation
+User requests account deletion via app or email to privacy@medilens.app
+Auth service marks account as pending_deletion, revokes all tokens immediately
+Erasure job enqueued: deletes Postgres rows (users, medication_lists, health_memory, scan_history, caregiver_links)
+S3 lifecycle policy for vault documents updated: immediate deletion (overrides standard expiry)
+Redis keys for user flushed via SCAN + DEL pattern (user_id prefix)
+Audit log entry created: deletion_requested, deletion_completed (retained 7 years for compliance)
+Confirmation email sent to user with deletion confirmation and timestamp
+Full deletion completed within 30 days (DPDP Act requirement). Target: 48 hours for active data
+
+MediLens Health OS — System Design Document
+Version 1.0  •  Production Architecture  •  Designed for 100M Requests/Month
