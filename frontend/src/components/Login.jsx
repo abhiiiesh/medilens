@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Activity } from 'lucide-react'
+import { API_BASE_URL } from '../config'
 
 export default function Login({ setToken }) {
   const [view, setView] = useState('login') // 'login', 'register', 'forgot'
@@ -34,7 +35,7 @@ export default function Login({ setToken }) {
           return
         }
 
-        response = await fetch(`http://127.0.0.1:8000/auth/register`, {
+        response = await fetch(`${API_BASE_URL}/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password, full_name: fullName })
@@ -49,7 +50,7 @@ export default function Login({ setToken }) {
         const formData = new URLSearchParams()
         formData.append('username', email)
         formData.append('password', password)
-        response = await fetch(`http://127.0.0.1:8000/auth/login`, {
+        response = await fetch(`${API_BASE_URL}/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: formData.toString()

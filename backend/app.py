@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
 import auth
 import rag_database
-import rag_database
 
 # find_dotenv() traverses up the directory tree to find the .env file
 load_dotenv(find_dotenv())
@@ -27,7 +26,7 @@ app = FastAPI(title="MediLens API - Production", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -690,7 +689,7 @@ async def analyze_medication(
     db: Session = Depends(get_db),
     # Temporarily optional to support the current frontend during transition, 
     # but defaults to real DB integration when token is provided.
-    current_user: models.User | None = Depends(auth.get_optional_current_user)
+    current_user: models.User = Depends(auth.get_current_user)
 ):
     """
     Accepts a base64-encoded JPEG. Calls Gemini API, applies Risk Detection Layer,
@@ -722,11 +721,10 @@ async def analyze_medication(
     # Pull medications and RAG context directly from the persistent database
     user_meds = []
     rag_contexts = []
-    if current_user:
-        meds = db.query(models.Medication).filter(models.Medication.owner_id == current_user.id).all()
-        for m in meds:
-            user_meds.append(m.drug_name)
-            rag_contexts.append(f"Knowledge for {m.drug_name}:\n{rag_database.retrieve_drug_context(m.drug_name)}")
+    meds = db.query(models.Medication).filter(models.Medication.owner_id == current_user.id).all()
+    for m in meds:
+        user_meds.append(m.drug_name)
+        rag_contexts.append(f"Knowledge for {m.drug_name}:\n{rag_database.retrieve_drug_context(m.drug_name)}")
 
     meds_str = ", ".join(user_meds) if user_meds else "none listed"
     rag_str = "\n".join(rag_contexts) if rag_contexts else "No specific ground truth database context."
@@ -752,7 +750,7 @@ async def analyze_medication(
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
                 json=payload,
             )
 
