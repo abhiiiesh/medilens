@@ -898,6 +898,54 @@ def list_clinical_feedback(
         for r in rows
     ]
 
+@app.get("/feedback/clinical/summary")
+def clinical_feedback_summary(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    from datetime import datetime, timedelta
+    since = datetime.utcnow() - timedelta(days=max(1, min(days, 180)))
+    rows = db.query(models.ClinicalFeedback).filter(
+        models.ClinicalFeedback.user_id == current_user.id,
+        models.ClinicalFeedback.created_at >= since
+    ).all()
+
+    if not rows:
+        return {
+            "window_days": max(1, min(days, 180)),
+            "entries": 0,
+            "avg_rating": None,
+            "unsafe_flags": 0,
+            "safe_flags": 0,
+            "unknown_flags": 0,
+            "by_case_type": {},
+            "by_reviewer_role": {},
+        }
+
+    def count_by(attr: str):
+        out: dict[str, int] = {}
+        for r in rows:
+            k = (getattr(r, attr, None) or "unknown").lower()
+            out[k] = out.get(k, 0) + 1
+        return out
+
+    safe_flags = sum(1 for r in rows if (r.is_safe or "").lower() == "yes")
+    unsafe_flags = sum(1 for r in rows if (r.is_safe or "").lower() == "no")
+    unknown_flags = sum(1 for r in rows if (r.is_safe or "").lower() not in {"yes", "no"})
+    avg_rating = round(sum(r.rating for r in rows) / len(rows), 2)
+
+    return {
+        "window_days": max(1, min(days, 180)),
+        "entries": len(rows),
+        "avg_rating": avg_rating,
+        "unsafe_flags": unsafe_flags,
+        "safe_flags": safe_flags,
+        "unknown_flags": unknown_flags,
+        "by_case_type": count_by("case_type"),
+        "by_reviewer_role": count_by("reviewer_role"),
+    }
+
 @app.get("/pilot/metrics")
 def pilot_metrics(days: int = 7, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     from datetime import datetime, timedelta

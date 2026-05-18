@@ -11,6 +11,7 @@ MediLens is a medication safety assistant for elderly and visually-impaired user
 - Pharmacy inventory radar + checkout simulation
 - Telemetry summary endpoint for analyze reliability metrics (`/telemetry/summary`)
 - Clinical feedback loop endpoints for safety/quality review (`/feedback/clinical`)
+- Clinical feedback summary endpoint for reviewer analytics (`/feedback/clinical/summary`)
 - Pilot outcome metrics endpoint (`/pilot/metrics`)
 - Unified pilot reporting endpoint (`/pilot/report`)
 

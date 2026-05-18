@@ -14,3 +14,4 @@
 1. ✅ True multimodal Gemma local path baseline (Ollama-compatible `images` payload support).
 2. ✅ Clinical reviewer feedback loop baseline (`/feedback/clinical` submit + list).
 3. ✅ Pilot metrics baseline endpoint (`/pilot/metrics`) for adherence/symptom/feedback outcomes.
+4. ✅ Feedback analytics summary endpoint (`/feedback/clinical/summary`) for pilot reviewer trends.
