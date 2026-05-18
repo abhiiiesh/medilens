@@ -991,6 +991,73 @@ def pilot_metrics(days: int = 7, db: Session = Depends(get_db), current_user: mo
         }
     }
 
+
+
+@app.get("/pilot/metrics/cohort")
+def pilot_metrics_cohort(days: int = 7, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Aggregate pilot metrics across all users (reviewer/admin use)."""
+    if (current_user.role or "patient") not in {"admin", "caregiver"}:
+        raise HTTPException(status_code=403, detail="Insufficient role for cohort metrics")
+
+    from datetime import datetime, timedelta
+    since = datetime.utcnow() - timedelta(days=max(1, min(days, 90)))
+
+    adherences = db.query(models.AdherenceLog).filter(models.AdherenceLog.timestamp >= since).all()
+    symptoms = db.query(models.SymptomLog).filter(models.SymptomLog.timestamp >= since).all()
+    feedback_rows = db.query(models.ClinicalFeedback).filter(models.ClinicalFeedback.created_at >= since).all()
+
+    taken = sum(1 for a in adherences if (a.status or "").lower() == "taken")
+    missed = sum(1 for a in adherences if (a.status or "").lower() == "missed")
+    adherence_rate = round((taken / (taken + missed)), 4) if (taken + missed) else 0.0
+
+    avg_symptom = round(sum(s.severity_score for s in symptoms) / len(symptoms), 2) if symptoms else None
+    feedback_count = len(feedback_rows)
+    avg_rating = round(sum(f.rating for f in feedback_rows) / feedback_count, 2) if feedback_count else None
+    unsafe_flags = sum(1 for f in feedback_rows if (f.is_safe or "").lower() == "no")
+
+    return {
+        "window_days": max(1, min(days, 90)),
+        "adherence": {"logs_total": len(adherences), "taken": taken, "missed": missed, "adherence_rate": adherence_rate},
+        "symptoms": {"logs_total": len(symptoms), "avg_severity": avg_symptom},
+        "clinical_feedback": {"entries": feedback_count, "avg_rating": avg_rating, "unsafe_flags": unsafe_flags},
+    }
+
+
+@app.get("/pilot/export")
+def pilot_export(days: int = 7, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Export user-scoped pilot records for offline analysis."""
+    from datetime import datetime, timedelta
+    since = datetime.utcnow() - timedelta(days=max(1, min(days, 90)))
+
+    adherences = db.query(models.AdherenceLog).filter(
+        models.AdherenceLog.user_id == current_user.id,
+        models.AdherenceLog.timestamp >= since,
+    ).all()
+    symptoms = db.query(models.SymptomLog).filter(
+        models.SymptomLog.user_id == current_user.id,
+        models.SymptomLog.timestamp >= since,
+    ).all()
+    feedback_rows = db.query(models.ClinicalFeedback).filter(
+        models.ClinicalFeedback.user_id == current_user.id,
+        models.ClinicalFeedback.created_at >= since,
+    ).all()
+
+    return {
+        "window_days": max(1, min(days, 90)),
+        "user_id": current_user.id,
+        "adherence_logs": [
+            {"id": a.id, "medication_id": a.medication_id, "timestamp": str(a.timestamp), "status": a.status}
+            for a in adherences
+        ],
+        "symptom_logs": [
+            {"id": s.id, "timestamp": str(s.timestamp), "symptom_description": s.symptom_description, "severity_score": s.severity_score}
+            for s in symptoms
+        ],
+        "clinical_feedback": [
+            {"id": f.id, "case_type": f.case_type, "rating": f.rating, "is_safe": f.is_safe, "comments": f.comments, "created_at": str(f.created_at)}
+            for f in feedback_rows
+        ],
+    }
 @app.get("/pilot/report")
 def pilot_report(days: int = 7, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     """Unified pilot-readout endpoint for quick weekly reporting."""

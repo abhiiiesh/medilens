@@ -15,3 +15,5 @@
 2. ✅ Clinical reviewer feedback loop baseline (`/feedback/clinical` submit + list).
 3. ✅ Pilot metrics baseline endpoint (`/pilot/metrics`) for adherence/symptom/feedback outcomes.
 4. ✅ Feedback analytics summary endpoint (`/feedback/clinical/summary`) for pilot reviewer trends.
+5. ✅ Pilot cohort rollup endpoint (`/pilot/metrics/cohort`) for reviewer/admin analytics.
+6. ✅ Pilot raw export endpoint (`/pilot/export`) for offline analysis and reporting.
