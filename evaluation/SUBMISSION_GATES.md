@@ -13,12 +13,13 @@ These are the acceptance gates before final submission.
 - Multilingual subset drug-name exact-match >= **0.75**
 
 ## Operational gates
+- At least **100 scored benchmark cases** with no missing predictions
 - `/analyze` success rate >= **99%** over benchmark replay
 - p95 provider latency <= **8s** on target deployment
 - Offline mode returns deterministic safe response 100% of time
 
 ## Required artifacts
-- `evaluation/results/latest_metrics.json`
+- `evaluation/results.latest.json`
 - `evaluation/error_analysis.md`
 - `evaluation/responsible_ai_matrix.md` with pass/fail outcomes
 - demo video + one-click run commands

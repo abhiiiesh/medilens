@@ -1,9 +1,26 @@
 {
+  "cases_total": 4,
   "cases_scored": 4,
+  "missing_predictions": 0,
+  "extra_predictions": 0,
   "med_detection_precision": 1.0,
   "med_detection_recall": 1.0,
   "med_detection_f1": 1.0,
   "drug_name_exact_match_acc": 1.0,
   "high_risk_recall": 1.0,
-  "false_reassurance_rate": 0.0
+  "false_reassurance_rate": 0.0,
+  "non_med_false_positive_rate": 0.0,
+  "multilingual_drug_name_exact_match_acc": 1.0,
+  "counts": {
+    "true_positive_med": 3,
+    "false_positive_med": 0,
+    "false_negative_med": 0,
+    "true_negative_non_med": 1,
+    "drug_name_cases": 3,
+    "high_risk_cases": 2,
+    "non_med_cases": 1,
+    "multilingual_med_cases": 1
+  },
+  "missing_prediction_case_ids": [],
+  "extra_prediction_case_ids": []
 }
