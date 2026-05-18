@@ -28,6 +28,19 @@ This folder provides a lightweight, reproducible evaluation setup for hackathon 
    ```bash
    python evaluation/check_gates.py --metrics evaluation/results.latest.json
    ```
+5. Validate benchmark coverage before claiming readiness:
+   ```bash
+   python evaluation/validate_benchmark.py --ground-truth evaluation/data/benchmark_v1.csv
+   ```
+6. Generate submission-readiness report:
+   ```bash
+   python evaluation/build_submission_report.py \
+     --ground-truth evaluation/data/benchmark_v1.csv \
+     --predictions evaluation/predictions/sample_predictions.jsonl \
+     --metrics evaluation/results.latest.json \
+     --responsible-ai evaluation/responsible_ai_results.md \
+     --error-analysis evaluation/error_analysis.md
+   ```
 
 ## Reported metrics
 - Medication detection precision / recall / F1
