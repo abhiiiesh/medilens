@@ -52,6 +52,19 @@ export default function PilotOps({ token, onBack }) {
     URL.revokeObjectURL(url)
   }
 
+  const downloadMarkdown = async () => {
+    const res = await fetch(`${API_BASE_URL}/pilot/report/markdown?days=${days}`, { headers })
+    if (!res.ok) return alert('Markdown report failed')
+    const data = await res.json()
+    const blob = new Blob([data.markdown || ''], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `pilot_report_${days}d.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-6 pb-32 text-gray-900">
       <div className="flex items-center gap-3 mb-6 mt-2">
@@ -101,7 +114,10 @@ export default function PilotOps({ token, onBack }) {
         </div>
       )}
 
-      <button onClick={downloadExport} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2"><Download size={16}/>Export Pilot JSON</button>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <button onClick={downloadExport} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2"><Download size={16}/>Export Pilot JSON</button>
+        <button onClick={downloadMarkdown} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2"><Download size={16}/>Download MD Report</button>
+      </div>
     </div>
   )
 }

@@ -1077,5 +1077,33 @@ def pilot_report(days: int = 7, db: Session = Depends(get_db), current_user: mod
         "latest_feedback": feedback_preview,
     }
 
+@app.get("/pilot/report/markdown")
+def pilot_report_markdown(days: int = 7, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Return a markdown-formatted weekly pilot summary for quick sharing."""
+    data = pilot_report(days=days, db=db, current_user=current_user)
+    rel = data.get("reliability", {})
+    out = data.get("outcomes", {})
+    adh = out.get("adherence", {})
+    sym = out.get("symptoms", {})
+    cfb = out.get("clinical_feedback", {})
+    md = f"""# MediLens Pilot Weekly Report
+
+## Scope
+- Window (days): **{data.get('window_days')}**
+
+## Reliability
+- Analyze success rate: **{rel.get('analyze_success_rate')}**
+- Analyze p95 latency (ms): **{rel.get('analyze_p95_latency_ms')}**
+- Analyze failures: **{rel.get('analyze_fail')}**
+- Low-quality rejects: **{rel.get('low_quality_rejects')}**
+
+## Outcomes
+- Adherence rate: **{adh.get('adherence_rate')}**
+- Avg symptom severity: **{sym.get('avg_severity')}**
+- Clinical feedback avg rating: **{cfb.get('avg_rating')}**
+- Unsafe flags: **{cfb.get('unsafe_flags')}**
+"""
+    return {"markdown": md, "window_days": data.get("window_days")}
+
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

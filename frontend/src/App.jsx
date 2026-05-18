@@ -55,6 +55,9 @@ function App() {
   const [appState, setAppState] = useState('idle') // idle | processing | result
   const [result, setResult] = useState(null)
   const [errorMsg, setErrorMsg] = useState(null)
+  const [feedbackRating, setFeedbackRating] = useState(5)
+  const [feedbackSafe, setFeedbackSafe] = useState('unknown')
+  const [feedbackComment, setFeedbackComment] = useState('')
 
   // Watch token changes to handle logout/login dynamically
   if (token && view === 'login') setView('dashboard')
@@ -141,6 +144,30 @@ function App() {
     setResult(null)
     setErrorMsg(null)
     window.speechSynthesis?.cancel()
+    setFeedbackRating(5)
+    setFeedbackSafe('unknown')
+    setFeedbackComment('')
+  }
+
+  const submitClinicalFeedback = async () => {
+    if (!token || !result) return
+    try {
+      await fetch(`${API_BASE_URL}/feedback/clinical`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          case_type: 'analyze',
+          model_output_summary: `${result.drug_name || 'unknown'} | ${result.instructions || result.speak_text || ''}`,
+          reviewer_role: 'patient',
+          rating: feedbackRating,
+          is_safe: feedbackSafe,
+          comments: feedbackComment
+        })
+      })
+      alert('Feedback submitted. Thank you!')
+    } catch (e) {
+      alert('Failed to submit feedback')
+    }
   }
 
   return (
@@ -266,6 +293,21 @@ function App() {
                 <p className="text-orange-200 text-md">{result.interaction_alert}</p>
               </div>
             )}
+
+            {/* Quick Clinical Feedback */}
+            <div className="bg-gray-800/60 rounded-2xl p-4 mb-4">
+              <p className="text-white font-semibold mb-2">Rate this AI result</p>
+              <div className="flex gap-2 mb-3">
+                <input type="number" min={1} max={5} value={feedbackRating} onChange={(e)=>setFeedbackRating(parseInt(e.target.value||'5'))} className="w-20 rounded px-2 py-1 bg-gray-700 text-white" />
+                <select value={feedbackSafe} onChange={(e)=>setFeedbackSafe(e.target.value)} className="rounded px-2 py-1 bg-gray-700 text-white">
+                  <option value="unknown">Safety: Unknown</option>
+                  <option value="yes">Safety: Safe</option>
+                  <option value="no">Safety: Unsafe</option>
+                </select>
+              </div>
+              <textarea value={feedbackComment} onChange={(e)=>setFeedbackComment(e.target.value)} placeholder="Optional comments" className="w-full rounded p-2 bg-gray-700 text-white mb-2" rows={2} />
+              <button onClick={submitClinicalFeedback} className="w-full bg-indigo-600 text-white py-2 rounded-xl font-bold">Submit Feedback</button>
+            </div>
 
             {/* Action Buttons */}
             <div className="flex gap-4">
