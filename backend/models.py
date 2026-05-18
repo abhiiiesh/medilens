@@ -71,3 +71,16 @@ class HealthDocument(Base):
     filename = Column(String)
     status = Column(String, default="processing") # processing, completed, failed
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+class ClinicalFeedback(Base):
+    __tablename__ = "clinical_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    case_type = Column(String, default="analyze")  # analyze, food, parse_prescription
+    model_output_summary = Column(String)  # short textual summary for audit
+    reviewer_role = Column(String, default="patient")  # patient, caregiver, clinician
+    rating = Column(Integer)  # 1-5 quality score
+    is_safe = Column(String, default="unknown")  # yes, no, unknown
+    comments = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

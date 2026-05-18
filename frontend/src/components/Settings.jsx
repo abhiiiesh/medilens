@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, User, ShieldPlus, AlertTriangle, Plus, Trash2 } from 'lucide-react'
+import { API_BASE_URL } from '../config'
 
 export default function Settings({ token, onBack }) {
   const [memory, setMemory] = useState([])
@@ -23,10 +24,10 @@ export default function Settings({ token, onBack }) {
 
   const loadData = async () => {
     try {
-      const memRes = await fetch('http://127.0.0.1:8000/health-memory', { headers: { 'Authorization': `Bearer ${token}` } })
+      const memRes = await fetch(`${API_BASE_URL}/health-memory`, { headers: { 'Authorization': `Bearer ${token}` } })
       if (memRes.ok) setMemory(await memRes.json())
 
-      const careRes = await fetch('http://127.0.0.1:8000/caregivers', { headers: { 'Authorization': `Bearer ${token}` } })
+      const careRes = await fetch(`${API_BASE_URL}/caregivers`, { headers: { 'Authorization': `Bearer ${token}` } })
       if (careRes.ok) setCaregivers(await careRes.json())
     } catch (e) {
       console.error(e)
@@ -41,7 +42,7 @@ export default function Settings({ token, onBack }) {
     e.preventDefault()
     if (!newMemory.description) return
     try {
-      await fetch('http://127.0.0.1:8000/health-memory', {
+      await fetch(`${API_BASE_URL}/health-memory`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(newMemory)
@@ -57,7 +58,7 @@ export default function Settings({ token, onBack }) {
     e.preventDefault()
     if (!newCaregiver) return
     try {
-      await fetch('http://127.0.0.1:8000/caregivers', {
+      await fetch(`${API_BASE_URL}/caregivers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ caregiver_email: newCaregiver, permissions: 'read_adherence,read_alerts' })
