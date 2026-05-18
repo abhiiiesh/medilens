@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
 import auth
 import rag_database
+from ai_client import generate_structured_json
 
 # find_dotenv() traverses up the directory tree to find the .env file
 load_dotenv(find_dotenv())
@@ -710,13 +711,6 @@ async def analyze_medication(
         safe_demo_payload = apply_risk_detection(demo_payload)
         return AnalyzeResponse(**safe_demo_payload)
 
-    # Check API Key from the .env file
-    api_key = os.getenv("API_Key", "")
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="Google API Key not found. Please ensure API_Key is set in your .env file."
-        )
 
     # Pull medications and RAG context directly from the persistent database
     user_meds = []
@@ -729,55 +723,25 @@ async def analyze_medication(
     meds_str = ", ".join(user_meds) if user_meds else "none listed"
     rag_str = "\n".join(rag_contexts) if rag_contexts else "No specific ground truth database context."
 
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": SYSTEM_PROMPT + "\n\n" + USER_PROMPT_TEMPLATE.format(medications=meds_str, grounded_context=rag_str)},
-                {
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": request.image_base64
-                    }
-                }
-            ]
-        }],
-        "generationConfig": {
-            "temperature": 0.1,
-            "responseMimeType": "application/json"
-        }
-    }
+    prompt = SYSTEM_PROMPT + "\n\n" + USER_PROMPT_TEMPLATE.format(
+        medications=meds_str,
+        grounded_context=rag_str
+    )
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
-                json=payload,
-            )
+        parsed_json = await generate_structured_json(
+            prompt,
+            image_base64=request.image_base64,
+            mime_type="image/jpeg",
+            temperature=0.1,
+        )
 
-        if response.status_code == 429:
-            raise HTTPException(status_code=429, detail="Google API Quota Exceeded. Please enable billing or set DEMO_MODE=true in .env")
-            
-        if response.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Gemini API error: {response.text}")
+        # If it's a medication, apply risk detection
+        if parsed_json.get("is_medication", True):
+            parsed_json = apply_risk_detection(parsed_json)
 
-        response_data = response.json()
-        try:
-            raw_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
-            # Clean markdown formatting if present
-            raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-            parsed_json = json.loads(raw_text)
-            
-            # If it's a medication, apply risk detection
-            if parsed_json.get("is_medication", True):
-                parsed_json = apply_risk_detection(parsed_json)
-                
-            return AnalyzeResponse(**parsed_json)
-            
-        except (KeyError, IndexError) as e:
-            raise HTTPException(status_code=500, detail="Unexpected response structure from AI.")
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=422, detail="AI returned invalid JSON format.")
-            
+        return AnalyzeResponse(**parsed_json)
+
     except HTTPException:
         raise
     except Exception as e:
