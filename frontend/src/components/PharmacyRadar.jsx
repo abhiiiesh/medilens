@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, MapPin, Search, Navigation, AlertCircle, CheckCircle, ShoppingBag, Plus } from 'lucide-react'
+import { API_BASE_URL } from '../config'
 
 export default function PharmacyRadar({ token, onBack, cart, addToCart, onCheckout, initialQuery = '', onClearQuery }) {
   const [query, setQuery] = useState(initialQuery)
@@ -68,7 +69,7 @@ export default function PharmacyRadar({ token, onBack, cart, addToCart, onChecko
     setHasSearched(true)
     
     try {
-      const res = await fetch(`http://127.0.0.1:8000/pharmacy/inventory/${encodeURIComponent(query)}?location=${encodeURIComponent(userLocation)}`, {
+      const res = await fetch(`${API_BASE_URL}/pharmacy/inventory/${encodeURIComponent(query)}?location=${encodeURIComponent(userLocation)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
