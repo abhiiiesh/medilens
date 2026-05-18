@@ -10,6 +10,8 @@ import FoodScanner from './components/FoodScanner'
 import PharmacyRadar from './components/PharmacyRadar'
 import Checkout from './components/Checkout'
 import OrderHistory from './components/OrderHistory'
+import PilotOps from './components/PilotOps'
+import { API_BASE_URL } from './config'
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || null)
@@ -53,6 +55,9 @@ function App() {
   const [appState, setAppState] = useState('idle') // idle | processing | result
   const [result, setResult] = useState(null)
   const [errorMsg, setErrorMsg] = useState(null)
+  const [feedbackRating, setFeedbackRating] = useState(5)
+  const [feedbackSafe, setFeedbackSafe] = useState('unknown')
+  const [feedbackComment, setFeedbackComment] = useState('')
 
   // Watch token changes to handle logout/login dynamically
   if (token && view === 'login') setView('dashboard')
@@ -94,7 +99,7 @@ function App() {
     const base64Data = imageSrc.split(',')[1]
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/analyze', {
+      const response = await fetch(`${API_BASE_URL}/analyze`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -139,12 +144,36 @@ function App() {
     setResult(null)
     setErrorMsg(null)
     window.speechSynthesis?.cancel()
+    setFeedbackRating(5)
+    setFeedbackSafe('unknown')
+    setFeedbackComment('')
+  }
+
+  const submitClinicalFeedback = async () => {
+    if (!token || !result) return
+    try {
+      await fetch(`${API_BASE_URL}/feedback/clinical`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          case_type: 'analyze',
+          model_output_summary: `${result.drug_name || 'unknown'} | ${result.instructions || result.speak_text || ''}`,
+          reviewer_role: 'patient',
+          rating: feedbackRating,
+          is_safe: feedbackSafe,
+          comments: feedbackComment
+        })
+      })
+      alert('Feedback submitted. Thank you!')
+    } catch (e) {
+      alert('Failed to submit feedback')
+    }
   }
 
   return (
     <>
       {view === 'login' && <Login setToken={setToken} />}
-      {view === 'dashboard' && <Dashboard token={token} setToken={setToken} activeOrder={activeOrder} onScan={() => setView('scanner')} onAddMedication={() => setView('add')} onSettings={() => setView('settings')} onVault={() => setView('vault')} onFood={() => setView('food')} onRadar={() => setView('radar')} onHistory={() => setView('history')} />}
+      {view === 'dashboard' && <Dashboard token={token} setToken={setToken} activeOrder={activeOrder} onScan={() => setView('scanner')} onAddMedication={() => setView('add')} onSettings={() => setView('settings')} onVault={() => setView('vault')} onFood={() => setView('food')} onRadar={() => setView('radar')} onHistory={() => setView('history')} onPilotOps={() => setView('pilotOps')} />}
       {view === 'add' && <AddMedication token={token} onBack={() => setView('dashboard')} onAdded={() => setView('dashboard')} />}
       {view === 'settings' && <Settings token={token} onBack={() => setView('dashboard')} />}
       {view === 'vault' && <Vault token={token} onBack={() => setView('dashboard')} onFindOnRadar={(drugName) => { setRadarQuery(drugName); setView('radar'); }} />}
@@ -152,6 +181,7 @@ function App() {
       {view === 'history' && <OrderHistory pastOrders={pastOrders} activeOrder={activeOrder} onBack={() => setView('dashboard')} />}
       {view === 'radar' && <PharmacyRadar token={token} onBack={() => setView('dashboard')} cart={cart} addToCart={(item) => setCart([...cart, item])} onCheckout={() => setView('checkout')} initialQuery={radarQuery} onClearQuery={() => setRadarQuery('')} />}
       {view === 'checkout' && <Checkout cart={cart} onBack={() => setView('radar')} onSuccess={(order) => { setActiveOrder(order); setCart([]); setView('dashboard'); }} />}
+      {view === 'pilotOps' && <PilotOps token={token} onBack={() => setView('dashboard')} />}
       
       {view === 'scanner' && (
         <div className="relative h-screen w-full bg-black overflow-hidden flex flex-col font-sans">
@@ -263,6 +293,21 @@ function App() {
                 <p className="text-orange-200 text-md">{result.interaction_alert}</p>
               </div>
             )}
+
+            {/* Quick Clinical Feedback */}
+            <div className="bg-gray-800/60 rounded-2xl p-4 mb-4">
+              <p className="text-white font-semibold mb-2">Rate this AI result</p>
+              <div className="flex gap-2 mb-3">
+                <input type="number" min={1} max={5} value={feedbackRating} onChange={(e)=>setFeedbackRating(parseInt(e.target.value||'5'))} className="w-20 rounded px-2 py-1 bg-gray-700 text-white" />
+                <select value={feedbackSafe} onChange={(e)=>setFeedbackSafe(e.target.value)} className="rounded px-2 py-1 bg-gray-700 text-white">
+                  <option value="unknown">Safety: Unknown</option>
+                  <option value="yes">Safety: Safe</option>
+                  <option value="no">Safety: Unsafe</option>
+                </select>
+              </div>
+              <textarea value={feedbackComment} onChange={(e)=>setFeedbackComment(e.target.value)} placeholder="Optional comments" className="w-full rounded p-2 bg-gray-700 text-white mb-2" rows={2} />
+              <button onClick={submitClinicalFeedback} className="w-full bg-indigo-600 text-white py-2 rounded-xl font-bold">Submit Feedback</button>
+            </div>
 
             {/* Action Buttons */}
             <div className="flex gap-4">
