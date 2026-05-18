@@ -4,8 +4,12 @@ This folder provides a lightweight, reproducible evaluation setup for hackathon 
 
 ## Files
 - `data/benchmark_template.csv`: template schema for benchmark cases.
+- `data/benchmark_v1.csv`: working file for 100+ case benchmark build.
 - `run_eval.py`: computes accuracy and safety-oriented metrics.
+- `check_gates.py`: validates metrics against submission thresholds.
 - `responsible_ai_matrix.md`: test matrix for hallucination, OCR false positives, multilingual robustness.
+- `responsible_ai_results.md`: run-by-run pass/fail evidence tracker.
+- `collect_benchmark_template.md`: data collection and labeling guide.
 
 ## Quick start
 1. Fill `data/benchmark_template.csv` with test examples.
@@ -19,6 +23,10 @@ This folder provides a lightweight, reproducible evaluation setup for hackathon 
    python evaluation/run_eval.py \
      --ground-truth evaluation/data/benchmark_template.csv \
      --predictions evaluation/predictions/sample_predictions.jsonl
+   ```
+4. Validate quality gates:
+   ```bash
+   python evaluation/check_gates.py --metrics evaluation/results.latest.json
    ```
 
 ## Reported metrics

@@ -43,6 +43,7 @@ npm run dev
 See `evaluation/README.md` for formal metrics and `evaluation/responsible_ai_matrix.md` for safety testing matrix.
 Submission thresholds and acceptance gates are in `evaluation/SUBMISSION_GATES.md`.
 Use `evaluation/error_analysis.md` to track failures and mitigations.
+Use `evaluation/check_gates.py` to auto-validate metric thresholds after each benchmark run.
 
 ## One-click judge demo
 See `notebooks/ONE_CLICK_DEMO.md`.
