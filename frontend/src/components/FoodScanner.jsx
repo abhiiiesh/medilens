@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ArrowLeft, Camera, UploadCloud, Utensils, AlertTriangle, CheckCircle, ShieldAlert } from 'lucide-react'
+import { API_BASE_URL } from '../config'
 
 export default function FoodScanner({ token, onBack }) {
   const [isScanning, setIsScanning] = useState(false)
@@ -18,7 +19,7 @@ export default function FoodScanner({ token, onBack }) {
     formData.append("file", file)
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/intelligence/food', {
+      const res = await fetch(`${API_BASE_URL}/intelligence/food`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData

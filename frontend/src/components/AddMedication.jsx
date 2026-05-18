@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { Camera, ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react'
+import { API_BASE_URL } from '../config'
 
 // Hardcoded for MVP Autocomplete (Matches backend rag_database.py)
 const DRUG_DB = ["Ibuprofen", "Lisinopril", "Warfarin", "Metformin", "Omeprazole", "Monocef", "Zerodol-SP", "Monticop"];
@@ -42,7 +43,7 @@ export default function AddMedication({ token, onBack, onAdded }) {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('http://127.0.0.1:8000/parse-prescription', {
+      const response = await fetch(`${API_BASE_URL}/parse-prescription`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData // No Content-Type header needed for FormData, browser sets it with boundary
@@ -84,7 +85,7 @@ export default function AddMedication({ token, onBack, onAdded }) {
     try {
       // POST each medication sequentially
       for (const med of validMeds) {
-          await fetch('http://127.0.0.1:8000/medications', {
+          await fetch(`${API_BASE_URL}/medications`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

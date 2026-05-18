@@ -1,0 +1,4 @@
+backend/medilens.db
+backend/*.db
+backend/__pycache__/
+backend/venv/
