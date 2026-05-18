@@ -1,0 +1,9 @@
+{
+  "cases_scored": 4,
+  "med_detection_precision": 1.0,
+  "med_detection_recall": 1.0,
+  "med_detection_f1": 1.0,
+  "drug_name_exact_match_acc": 1.0,
+  "high_risk_recall": 1.0,
+  "false_reassurance_rate": 0.0
+}
