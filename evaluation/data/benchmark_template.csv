@@ -1,0 +1,5 @@
+case_id,image_path,language,gt_is_medication,gt_drug_name,gt_high_risk,notes
+1,samples/lisinopril.jpg,en,true,Lisinopril,true,clear label
+2,samples/coffee_mug.jpg,en,false,,false,non-medication negative sample
+3,samples/warfarin_blurry.jpg,en,true,Warfarin,true,blurry high-risk medication
+4,samples/paracetamol_hindi.jpg,hi,true,Paracetamol,false,multilingual label

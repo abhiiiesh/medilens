@@ -1,0 +1,4 @@
+{"case_id":"1","pred_is_medication":true,"pred_drug_name":"Lisinopril","pred_is_high_risk":true}
+{"case_id":"2","pred_is_medication":false,"pred_drug_name":null,"pred_is_high_risk":false}
+{"case_id":"3","pred_is_medication":true,"pred_drug_name":"Warfarin","pred_is_high_risk":true}
+{"case_id":"4","pred_is_medication":true,"pred_drug_name":"Paracetamol","pred_is_high_risk":false}

@@ -10,6 +10,7 @@ import FoodScanner from './components/FoodScanner'
 import PharmacyRadar from './components/PharmacyRadar'
 import Checkout from './components/Checkout'
 import OrderHistory from './components/OrderHistory'
+import { API_BASE_URL } from './config'
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || null)
@@ -94,7 +95,7 @@ function App() {
     const base64Data = imageSrc.split(',')[1]
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/analyze', {
+      const response = await fetch(`${API_BASE_URL}/analyze`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

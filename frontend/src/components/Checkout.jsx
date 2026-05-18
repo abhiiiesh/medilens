@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, Plus, Minus, Tag, CheckCircle2, Package, ShieldCheck } from 'lucide-react'
+import { API_BASE_URL } from '../config'
 
 export default function Checkout({ cart = [], onBack, onSuccess }) {
   // Use a local copy of cart to manage quantities
@@ -25,7 +26,7 @@ export default function Checkout({ cart = [], onBack, onSuccess }) {
   useEffect(() => {
     const drugNames = items.map(i => i.drugName).filter(Boolean)
     if (drugNames.length === 0) return
-    fetch('http://127.0.0.1:8000/pharmacy/addons', {
+    fetch(`${API_BASE_URL}/pharmacy/addons`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ drugs: drugNames })
