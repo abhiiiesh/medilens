@@ -1,6 +1,6 @@
 # MediLens - Longitudinal Healthcare Assistant
 
-MediLens is a medication safety assistant for elderly and visually-impaired users.
+MediLens is a medication safety assistant for People.
 
 ## Key capabilities
 - Medication label analysis from camera image
