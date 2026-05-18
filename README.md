@@ -1,6 +1,6 @@
-# MediLens - Longitudinal Healthcare Assistant
+# MediLens: Edge Medication Intelligence for People
 
-MediLens is a medication safety assistant for People.
+MediLens is a medication safety assistant that helps people understand medication labels, prescriptions, food interactions, and health records in plain language.
 
 ## Key capabilities
 - Medication label analysis from camera image
@@ -21,20 +21,27 @@ MediLens is a medication safety assistant for People.
 - Pilot CSV bundle export endpoint (`/pilot/export/csv`) + one-click download in Pilot Ops UI
 
 ## AI providers
-Backend supports three modes via environment variable `AI_PROVIDER`:
-- `gemini` (default): Gemini API path
-- `gemma`: local Gemma path via Ollama-compatible endpoint
-- `gemma`: local Gemma path via Ollama-compatible endpoint (supports multimodal `images` payload for vision-capable local models)
+Backend AI features route through a shared provider layer controlled by `AI_PROVIDER`:
+- `gemini` (default): Gemini API path for cloud demos
+- `gemma`: local Gemma path via an Ollama-compatible endpoint, including multimodal `images` payloads for vision-capable local models
 - `offline`: deterministic safe fallback for low-connectivity demos
 
 ### AI env vars
 - `AI_PROVIDER=gemini|gemma|offline`
-- `API_Key=<google key>` (gemini mode)
+- `API_Key=<google key>` or `GOOGLE_API_KEY=<google key>` (gemini mode)
 - `GEMMA_ENDPOINT=http://127.0.0.1:11434/api/generate` (gemma mode)
 - `GEMMA_MODEL=gemma3:4b` (gemma mode)
 - `AI_TIMEOUT_SECONDS=45`
 - `AI_MAX_RETRIES=2`
 - `ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
+
+### Local Gemma via Ollama
+```bash
+ollama serve
+ollama pull gemma3:4b
+cd backend
+AI_PROVIDER=gemma GEMMA_MODEL=gemma3:4b python app.py
+```
 
 ## Quick start
 ### Backend
