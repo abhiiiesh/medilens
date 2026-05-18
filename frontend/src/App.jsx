@@ -10,6 +10,7 @@ import FoodScanner from './components/FoodScanner'
 import PharmacyRadar from './components/PharmacyRadar'
 import Checkout from './components/Checkout'
 import OrderHistory from './components/OrderHistory'
+import PilotOps from './components/PilotOps'
 import { API_BASE_URL } from './config'
 
 function App() {
@@ -145,7 +146,7 @@ function App() {
   return (
     <>
       {view === 'login' && <Login setToken={setToken} />}
-      {view === 'dashboard' && <Dashboard token={token} setToken={setToken} activeOrder={activeOrder} onScan={() => setView('scanner')} onAddMedication={() => setView('add')} onSettings={() => setView('settings')} onVault={() => setView('vault')} onFood={() => setView('food')} onRadar={() => setView('radar')} onHistory={() => setView('history')} />}
+      {view === 'dashboard' && <Dashboard token={token} setToken={setToken} activeOrder={activeOrder} onScan={() => setView('scanner')} onAddMedication={() => setView('add')} onSettings={() => setView('settings')} onVault={() => setView('vault')} onFood={() => setView('food')} onRadar={() => setView('radar')} onHistory={() => setView('history')} onPilotOps={() => setView('pilotOps')} />}
       {view === 'add' && <AddMedication token={token} onBack={() => setView('dashboard')} onAdded={() => setView('dashboard')} />}
       {view === 'settings' && <Settings token={token} onBack={() => setView('dashboard')} />}
       {view === 'vault' && <Vault token={token} onBack={() => setView('dashboard')} onFindOnRadar={(drugName) => { setRadarQuery(drugName); setView('radar'); }} />}
@@ -153,6 +154,7 @@ function App() {
       {view === 'history' && <OrderHistory pastOrders={pastOrders} activeOrder={activeOrder} onBack={() => setView('dashboard')} />}
       {view === 'radar' && <PharmacyRadar token={token} onBack={() => setView('dashboard')} cart={cart} addToCart={(item) => setCart([...cart, item])} onCheckout={() => setView('checkout')} initialQuery={radarQuery} onClearQuery={() => setRadarQuery('')} />}
       {view === 'checkout' && <Checkout cart={cart} onBack={() => setView('radar')} onSuccess={(order) => { setActiveOrder(order); setCart([]); setView('dashboard'); }} />}
+      {view === 'pilotOps' && <PilotOps token={token} onBack={() => setView('dashboard')} />}
       
       {view === 'scanner' && (
         <div className="relative h-screen w-full bg-black overflow-hidden flex flex-col font-sans">

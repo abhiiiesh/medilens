@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Pill, Plus, LogOut, Bell, BellRing, Clock, CheckCircle2, Activity, BrainCircuit, Settings as SettingsIcon, FolderOpen, Apple, MapPin, Truck, ClipboardList } from 'lucide-react'
+import { Pill, Plus, LogOut, Bell, BellRing, Clock, CheckCircle2, Activity, BrainCircuit, Settings as SettingsIcon, FolderOpen, Apple, MapPin, Truck, ClipboardList, BarChart3 } from 'lucide-react'
 import { API_BASE_URL } from '../config'
 
-export default function Dashboard({ token, setToken, activeOrder, onScan, onAddMedication, onSettings, onVault, onFood, onRadar, onHistory }) {
+export default function Dashboard({ token, setToken, activeOrder, onScan, onAddMedication, onSettings, onVault, onFood, onRadar, onHistory, onPilotOps }) {
   const [meds, setMeds] = useState([])
   const [user, setUser] = useState(null)
   const [insight, setInsight] = useState("Analyzing your behavioral data...")
@@ -119,6 +119,9 @@ export default function Dashboard({ token, setToken, activeOrder, onScan, onAddM
         <div className="flex flex-wrap gap-2 md:justify-end">
           <button onClick={onHistory} className="p-3 bg-white border border-gray-200 rounded-full text-blue-600 hover:bg-blue-50 shadow-sm transition-colors" title="Order History">
             <ClipboardList size={20} />
+          </button>
+          <button onClick={onPilotOps} className="p-3 bg-white border border-amber-200 rounded-full text-amber-600 hover:bg-amber-50 shadow-sm transition-colors" title="Pilot Ops">
+            <BarChart3 size={20} />
           </button>
           <button onClick={onRadar} className="p-3 bg-white border border-violet-200 rounded-full text-violet-600 hover:bg-violet-50 shadow-sm transition-colors" title="Pharmacy Radar">
             <MapPin size={20} />

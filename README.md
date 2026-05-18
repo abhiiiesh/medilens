@@ -15,6 +15,7 @@ MediLens is a medication safety assistant for elderly and visually-impaired user
 - Pilot outcome metrics endpoint (`/pilot/metrics`)
 - Pilot cohort metrics endpoint for reviewer/admin rollups (`/pilot/metrics/cohort`)
 - Unified pilot reporting endpoint (`/pilot/report`)
+- Pilot Ops frontend screen for live reliability/outcomes/cohort monitoring + export
 - Pilot raw-data export endpoint (`/pilot/export`)
 
 ## AI providers
