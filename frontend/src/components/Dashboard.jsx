@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Pill, Plus, LogOut, Bell, BellRing, Clock, CheckCircle2, Activity, BrainCircuit, Settings as SettingsIcon, FolderOpen, Apple, MapPin, Truck, ClipboardList } from 'lucide-react'
+import { API_BASE_URL } from '../config'
 
 export default function Dashboard({ token, setToken, activeOrder, onScan, onAddMedication, onSettings, onVault, onFood, onRadar, onHistory }) {
   const [meds, setMeds] = useState([])
@@ -14,14 +15,14 @@ export default function Dashboard({ token, setToken, activeOrder, onScan, onAddM
   }
 
   const loadData = () => {
-    fetch('http://127.0.0.1:8000/users/me', {
+    fetch(`${API_BASE_URL}/users/me`, {
       headers: { 'Authorization': `Bearer ${token}` }
     }).then(res => {
       if (res.status === 401) { logout(); throw new Error('Unauthorized'); }
       return res.json();
     }).then(setUser).catch(console.error)
 
-    fetch('http://127.0.0.1:8000/medications', {
+    fetch(`${API_BASE_URL}/medications`, {
       headers: { 'Authorization': `Bearer ${token}` }
     }).then(res => res.json()).then(setMeds).catch(console.error)
 
@@ -29,7 +30,7 @@ export default function Dashboard({ token, setToken, activeOrder, onScan, onAddM
   }
 
   const fetchInsights = () => {
-    fetch('http://127.0.0.1:8000/intelligence/insights', {
+    fetch(`${API_BASE_URL}/intelligence/insights`, {
       headers: { 'Authorization': `Bearer ${token}` }
     }).then(res => res.json()).then(data => setInsight(data.insight)).catch(() => setInsight("Failed to load insights."));
   }
@@ -78,7 +79,7 @@ export default function Dashboard({ token, setToken, activeOrder, onScan, onAddM
 
   const handleLogAdherence = async (med_id) => {
     try {
-      await fetch('http://127.0.0.1:8000/log/adherence', {
+      await fetch(`${API_BASE_URL}/log/adherence`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ medication_id: med_id, status: 'taken' })
@@ -95,7 +96,7 @@ export default function Dashboard({ token, setToken, activeOrder, onScan, onAddM
     if (!symptom.description) return;
 
     try {
-      await fetch('http://127.0.0.1:8000/log/symptom', {
+      await fetch(`${API_BASE_URL}/log/symptom`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ symptom_description: symptom.description, severity_score: parseInt(symptom.severity) })
