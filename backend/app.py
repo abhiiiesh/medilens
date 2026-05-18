@@ -2,7 +2,7 @@ import os
 import json
 import re
 import httpx
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from pydantic import BaseModel
@@ -686,6 +686,7 @@ async def parse_prescription(file: UploadFile = File(...)):
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_medication(
+    request_ctx: Request,
     request: AnalyzeRequest, 
     db: Session = Depends(get_db),
     # Temporarily optional to support the current frontend during transition, 
@@ -734,6 +735,7 @@ async def analyze_medication(
             image_base64=request.image_base64,
             mime_type="image/jpeg",
             temperature=0.1,
+            trace_id=request_ctx.headers.get("X-Request-ID"),
         )
 
         # If it's a medication, apply risk detection

@@ -21,6 +21,8 @@ Backend supports three modes via environment variable `AI_PROVIDER`:
 - `API_Key=<google key>` (gemini mode)
 - `GEMMA_ENDPOINT=http://127.0.0.1:11434/api/generate` (gemma mode)
 - `GEMMA_MODEL=gemma3:4b` (gemma mode)
+- `AI_TIMEOUT_SECONDS=45`
+- `AI_MAX_RETRIES=2`
 - `ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
 
 ## Quick start
@@ -39,6 +41,11 @@ npm run dev
 
 ## Evaluation + Responsible AI
 See `evaluation/README.md` for formal metrics and `evaluation/responsible_ai_matrix.md` for safety testing matrix.
+Submission thresholds and acceptance gates are in `evaluation/SUBMISSION_GATES.md`.
+Use `evaluation/error_analysis.md` to track failures and mitigations.
 
 ## One-click judge demo
 See `notebooks/ONE_CLICK_DEMO.md`.
+
+## Direct next steps
+Execution roadmap is documented in `ROADMAP_NEXT.md`.
