@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, FileText, UploadCloud, CheckCircle, Clock, AlertCircle, Search, Scan } from 'lucide-react'
+import { API_BASE_URL } from '../config'
 
 export default function Vault({ token, onBack, onFindOnRadar }) {
   const [documents, setDocuments] = useState([])
@@ -9,7 +10,7 @@ export default function Vault({ token, onBack, onFindOnRadar }) {
 
   const loadDocuments = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/vault/documents', {
+      const res = await fetch(`${API_BASE_URL}/vault/documents`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) setDocuments(await res.json())
@@ -34,7 +35,7 @@ export default function Vault({ token, onBack, onFindOnRadar }) {
     formData.append("file", file)
 
     try {
-      await fetch('http://127.0.0.1:8000/vault/upload', {
+      await fetch(`${API_BASE_URL}/vault/upload`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
