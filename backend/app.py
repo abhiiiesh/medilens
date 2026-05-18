@@ -1,6 +1,9 @@
 import os
 import json
 import re
+import time
+import base64
+import binascii
 import httpx
 from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -136,6 +139,36 @@ HIGH_RISK_KEYWORDS = [
     "overdose", "insulin", "anticoagulant", "chemotherapy", "opioid", 
     "warfarin", "methotrexate", "fentanyl"
 ]
+
+TELEMETRY = {
+    "analyze_total": 0,
+    "analyze_success": 0,
+    "analyze_fail": 0,
+    "analyze_high_risk": 0,
+    "analyze_low_quality_rejects": 0,
+    "latency_ms_samples": [],
+}
+
+def _record_latency(ms: float):
+    TELEMETRY["latency_ms_samples"].append(ms)
+    # Keep bounded in-memory samples for lightweight MVP telemetry.
+    if len(TELEMETRY["latency_ms_samples"]) > 500:
+        TELEMETRY["latency_ms_samples"] = TELEMETRY["latency_ms_samples"][-500:]
+
+def _image_quality_precheck(image_base64: str) -> tuple[bool, str | None]:
+    """Simple edge-safe quality guardrail for low-connectivity MVP deployments.
+    This checks payload validity and a minimum byte-size threshold as a proxy for
+    very blurry/over-compressed captures.
+    """
+    if not image_base64:
+        return False, "Image payload is empty."
+    try:
+        raw = base64.b64decode(image_base64, validate=True)
+    except (binascii.Error, ValueError):
+        return False, "Image payload is not valid base64."
+    if len(raw) < 12_000:
+        return False, "Image quality is too low or too compressed. Please retake with better lighting and focus."
+    return True, None
 
 def apply_risk_detection(response_data: dict) -> dict:
     """Scans the AI output for high-risk medications and modifies the payload if detected.
@@ -698,6 +731,9 @@ async def analyze_medication(
     and returns structured JSON for the React frontend.
     """
     
+    TELEMETRY["analyze_total"] += 1
+    start = time.perf_counter()
+
     # DEMO MODE fallback
     if os.getenv("DEMO_MODE", "false").lower() == "true":
         demo_payload = {
@@ -710,8 +746,26 @@ async def analyze_medication(
             "is_high_risk": False
         }
         safe_demo_payload = apply_risk_detection(demo_payload)
+        TELEMETRY["analyze_success"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
         return AnalyzeResponse(**safe_demo_payload)
 
+    quality_ok, quality_msg = _image_quality_precheck(request.image_base64)
+    if not quality_ok:
+        TELEMETRY["analyze_low_quality_rejects"] += 1
+        TELEMETRY["analyze_fail"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
+        return AnalyzeResponse(
+            is_medication=False,
+            confidence_score=0.0,
+            drug_name=None,
+            dose_plain=None,
+            instructions=None,
+            warnings=[quality_msg or "Image quality too low."],
+            interaction_alert=None,
+            speak_text="I couldn't read the label clearly. Please move closer, improve lighting, and retake the photo.",
+            is_high_risk=True,
+        )
 
     # Pull medications and RAG context directly from the persistent database
     user_meds = []
@@ -727,7 +781,7 @@ async def analyze_medication(
     prompt = SYSTEM_PROMPT + "\n\n" + USER_PROMPT_TEMPLATE.format(
         medications=meds_str,
         grounded_context=rag_str
-    )
+    ) + "\n\nIf the visible text is in a non-English language, translate it to English before extraction."
 
     try:
         parsed_json = await generate_structured_json(
@@ -741,13 +795,36 @@ async def analyze_medication(
         # If it's a medication, apply risk detection
         if parsed_json.get("is_medication", True):
             parsed_json = apply_risk_detection(parsed_json)
+        if parsed_json.get("is_high_risk"):
+            TELEMETRY["analyze_high_risk"] += 1
 
+        TELEMETRY["analyze_success"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
         return AnalyzeResponse(**parsed_json)
 
     except HTTPException:
+        TELEMETRY["analyze_fail"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
         raise
     except Exception as e:
+        TELEMETRY["analyze_fail"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+@app.get("/telemetry/summary")
+def telemetry_summary(current_user: models.User = Depends(auth.get_current_user)):
+    samples = TELEMETRY["latency_ms_samples"]
+    p95 = sorted(samples)[int(0.95 * (len(samples) - 1))] if len(samples) > 1 else (samples[0] if samples else 0.0)
+    return {
+        "analyze_total": TELEMETRY["analyze_total"],
+        "analyze_success": TELEMETRY["analyze_success"],
+        "analyze_fail": TELEMETRY["analyze_fail"],
+        "analyze_low_quality_rejects": TELEMETRY["analyze_low_quality_rejects"],
+        "analyze_high_risk": TELEMETRY["analyze_high_risk"],
+        "success_rate": round((TELEMETRY["analyze_success"] / TELEMETRY["analyze_total"]), 4) if TELEMETRY["analyze_total"] else 0.0,
+        "p95_latency_ms": round(p95, 2),
+        "samples": len(samples),
+    }
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

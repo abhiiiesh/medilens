@@ -9,6 +9,7 @@ MediLens is a medication safety assistant for elderly and visually-impaired user
 - Health memory (allergies + conditions)
 - Food safety analysis against user profile
 - Pharmacy inventory radar + checkout simulation
+- Telemetry summary endpoint for analyze reliability metrics (`/telemetry/summary`)
 
 ## AI providers
 Backend supports three modes via environment variable `AI_PROVIDER`:

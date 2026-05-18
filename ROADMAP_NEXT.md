@@ -6,9 +6,9 @@
 3. Complete Responsible-AI matrix with pass/fail evidence.
 
 ## Sprint 2
-1. Add pre-check image quality gate (blur/low-light).
-2. Implement structured telemetry dashboard (latency, error rate, high-risk recall proxy).
-3. Add multilingual preprocessing pipeline.
+1. ✅ Add pre-check image quality gate (blur/low-light proxy via payload-quality threshold).
+2. ✅ Implement structured telemetry summary (latency, error rate, high-risk and low-quality counters).
+3. ✅ Add multilingual preprocessing prompt instruction for English-normalized extraction.
 
 ## Sprint 3
 1. True multimodal Gemma local path (not text-only adapter).
