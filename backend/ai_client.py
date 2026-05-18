@@ -4,9 +4,15 @@ import re
 import uuid
 import logging
 import httpx
+from dotenv import load_dotenv, find_dotenv
 from typing import Any
 
 logger = logging.getLogger("medilens.ai")
+
+# Load .env before reading provider configuration. app.py also loads dotenv, but
+# ai_client is imported before app.py calls load_dotenv(), so provider settings
+# must be initialized here as well.
+load_dotenv(find_dotenv())
 
 AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").lower()  # gemini | gemma | offline
 GEMMA_ENDPOINT = os.getenv("GEMMA_ENDPOINT", "http://127.0.0.1:11434/api/generate")
