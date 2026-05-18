@@ -1,10 +1,8 @@
 import os
-import json
 import re
 import time
 import base64
 import binascii
-import httpx
 from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 import logging
@@ -18,7 +16,7 @@ from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
 import auth
 import rag_database
-from ai_client import generate_structured_json
+from ai_client import generate_structured_json, generate_json_value, generate_text
 
 # find_dotenv() traverses up the directory tree to find the .env file
 load_dotenv(find_dotenv())
@@ -364,13 +362,8 @@ async def process_medical_document(doc_id: int, file_bytes: bytes, mime_type: st
     from database import SessionLocal
     db = SessionLocal()
     try:
-        api_key = os.getenv("API_Key", "")
-        if not api_key:
-            raise ValueError("No API Key")
-            
-        import base64
         base64_data = base64.b64encode(file_bytes).decode('utf-8')
-        
+
         prompt = """You are a specialized Medical Document AI. Read the attached medical document (lab report, discharge summary, etc).
 Extract any explicitly stated patient ALLERGIES and CHRONIC CONDITIONS.
 Return ONLY valid JSON matching this schema:
@@ -379,42 +372,27 @@ Return ONLY valid JSON matching this schema:
   "conditions": ["list of strings"]
 }
 """
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt},
-                    {"inline_data": {"mime_type": mime_type, "data": base64_data}}
-                ]
-            }],
-            "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
-        }
-        
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
-                json=payload,
-            )
-            
-        response_data = response.json()
-        raw_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
-        
-        import re
-        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        if json_match:
-            extracted = json.loads(json_match.group(0))
-            # Write to Health Memory
-            for allergy in extracted.get("allergies", []):
-                new_mem = models.HealthMemory(user_id=user_id, memory_type="allergy", description=allergy)
-                db.add(new_mem)
-            for condition in extracted.get("conditions", []):
-                new_mem = models.HealthMemory(user_id=user_id, memory_type="condition", description=condition)
-                db.add(new_mem)
-                
-            doc = db.query(models.HealthDocument).filter(models.HealthDocument.id == doc_id).first()
-            if doc:
-                doc.status = "completed"
-            db.commit()
-            
+        extracted = await generate_structured_json(
+            prompt,
+            image_base64=base64_data,
+            mime_type=mime_type,
+            temperature=0.1,
+            offline_fallback={"allergies": [], "conditions": []},
+        )
+
+        # Write to Health Memory
+        for allergy in extracted.get("allergies", []):
+            new_mem = models.HealthMemory(user_id=user_id, memory_type="allergy", description=allergy)
+            db.add(new_mem)
+        for condition in extracted.get("conditions", []):
+            new_mem = models.HealthMemory(user_id=user_id, memory_type="condition", description=condition)
+            db.add(new_mem)
+
+        doc = db.query(models.HealthDocument).filter(models.HealthDocument.id == doc_id).first()
+        if doc:
+            doc.status = "completed"
+        db.commit()
+
     except Exception as e:
         logging.error(f"Failed to process document {doc_id}: {str(e)}")
         doc = db.query(models.HealthDocument).filter(models.HealthDocument.id == doc_id).first()
@@ -455,17 +433,17 @@ def get_documents(db: Session = Depends(get_db), current_user: models.User = Dep
 async def get_insights(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     from datetime import datetime, timedelta
     seven_days_ago = datetime.utcnow() - timedelta(days=7)
-    
+
     symptoms = db.query(models.SymptomLog).filter(models.SymptomLog.user_id == current_user.id, models.SymptomLog.timestamp >= seven_days_ago).all()
     adherences = db.query(models.AdherenceLog).filter(models.AdherenceLog.user_id == current_user.id, models.AdherenceLog.timestamp >= seven_days_ago).all()
-    
+
     if not symptoms and not adherences:
         return {"insight": "Not enough data yet. Keep logging your symptoms and medication adherence to unlock AI behavioral insights!"}
-        
+
     symptom_str = "\n".join([f"- {s.timestamp.strftime('%Y-%m-%d %H:%M')}: {s.symptom_description} (Severity: {s.severity_score}/10)" for s in symptoms])
     adherence_str = "\n".join([f"- {a.timestamp.strftime('%Y-%m-%d %H:%M')}: Med ID {a.medication_id} marked as {a.status}" for a in adherences])
-    
-    prompt = f"""You are MediLens AI, an advanced Longitudinal Health Intelligence agent. 
+
+    prompt = f"""You are MediLens AI, an advanced Longitudinal Health Intelligence agent.
 Analyze the user's past 7 days of behavioral data to find correlations between missed medications and reported symptoms.
 If there's a correlation, point it out gently (e.g. "I noticed you reported dizziness on days you missed your Lisinopril").
 If there's no obvious correlation, provide a brief encouraging message about their adherence or symptom trends.
@@ -478,49 +456,35 @@ Keep it under 3 sentences.
 {symptom_str if symptom_str else "No symptom logs."}
 """
 
-    api_key = os.getenv("API_Key", "")
-    if not api_key:
-        return {"insight": "API Key missing for AI Insights."}
-        
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.2}
-                }
-            )
-        data = response.json()
-        insight_text = data["candidates"][0]["content"]["parts"][0]["text"]
+        insight_text = await generate_text(
+            prompt,
+            temperature=0.2,
+            offline_fallback="Offline mode active. Keep logging symptoms and medication adherence to unlock trend insights when AI is available.",
+        )
         return {"insight": insight_text.strip()}
-    except Exception as e:
+    except Exception:
         return {"insight": "Failed to generate AI insights at this time."}
 
 @app.post("/intelligence/food", response_model=FoodAnalysisResponse)
 async def analyze_food(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    api_key = os.getenv("API_Key", "")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="Google API Key not found.")
-
     # Gather context from Health Memory and Medications
     memories = db.query(models.HealthMemory).filter(models.HealthMemory.user_id == current_user.id).all()
     allergies = [m.description for m in memories if m.memory_type == "allergy"]
     conditions = [m.description for m in memories if m.memory_type == "condition"]
-    
+
     meds = db.query(models.Medication).filter(models.Medication.owner_id == current_user.id).all()
     med_names = [m.drug_name for m in meds]
 
     try:
         file_bytes = await file.read()
-        import base64
         base64_data = base64.b64encode(file_bytes).decode('utf-8')
         mime_type = file.content_type or "image/jpeg"
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read image: {str(e)}")
 
     prompt = f"""You are MediLens Nutritional Intelligence. Analyze this image of a meal or food item.
-    
+
 Patient Profile:
 - Known Allergies: {', '.join(allergies) if allergies else 'None'}
 - Chronic Conditions: {', '.join(conditions) if conditions else 'None'}
@@ -538,31 +502,21 @@ Return ONLY valid JSON:
   "interactions": ["List of specific interactions, or empty list"]
 }}
 """
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {"inline_data": {"mime_type": mime_type, "data": base64_data}}
-            ]
-        }],
-        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
-    }
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
-                json=payload,
-            )
-        response_data = response.json()
-        raw_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
-        
-        import re
-        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        if json_match:
-            return FoodAnalysisResponse(**json.loads(json_match.group(0)))
-        else:
-            raise Exception("No JSON found")
+        parsed = await generate_structured_json(
+            prompt,
+            image_base64=base64_data,
+            mime_type=mime_type,
+            temperature=0.2,
+            offline_fallback={
+                "food_name": "Unknown food",
+                "is_safe": False,
+                "safety_message": "Offline mode is active, so I cannot safely analyze this meal right now.",
+                "interactions": ["AI unavailable"],
+            },
+        )
+        return FoodAnalysisResponse(**parsed)
     except Exception as e:
         logging.error(f"Food analysis failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to analyze food.")
@@ -613,11 +567,15 @@ def get_pharmacy_inventory(drug_name: str, location: Optional[str] = "Springfiel
 
 @app.post("/pharmacy/addons")
 async def get_ai_addons(payload: dict):
-    """Uses Gemini AI to recommend complementary add-on products based on cart contents."""
+    """Recommend complementary add-on products through the configured AI provider."""
+    fallback_addons = [
+        {"name": "Hydration Salts", "price": 5.99},
+        {"name": "Probiotics 30ct", "price": 15.50},
+        {"name": "Thermometer", "price": 12.00},
+    ]
     drug_names = payload.get("drugs", [])
-    api_key = os.getenv("API_Key", "")
-    if not api_key or not drug_names:
-        return [{"name": "Hydration Salts", "price": 5.99}, {"name": "Probiotics 30ct", "price": 15.50}, {"name": "Thermometer", "price": 12.00}]
+    if not drug_names:
+        return fallback_addons
 
     prompt = f"""A patient is buying: {', '.join(drug_names)}.
 Suggest exactly 3 complementary OTC health products that would be genuinely useful alongside these medications.
@@ -629,18 +587,25 @@ Return ONLY a JSON array (no markdown) like:
 ]
 """
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            res = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
-                json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json"}}
-            )
-        data = res.json()
-        raw = data["candidates"][0]["content"]["parts"][0]["text"]
-        addons = json.loads(raw)
-        return addons[:3]
+        addons = await generate_json_value(
+            prompt,
+            temperature=0.4,
+            offline_fallback=fallback_addons,
+        )
+        if not isinstance(addons, list):
+            raise ValueError("AI add-ons response must be a JSON array")
+        normalized = []
+        for addon in addons[:3]:
+            if not isinstance(addon, dict):
+                continue
+            normalized.append({
+                "name": str(addon.get("name", "Health Support Item")),
+                "price": float(addon.get("price", 9.99)),
+            })
+        return normalized or fallback_addons
     except Exception as e:
         logging.error(f"AI addons failed: {e}")
-        return [{"name": "Hydration Salts", "price": 5.99}, {"name": "Probiotics 30ct", "price": 15.50}, {"name": "Thermometer", "price": 12.00}]
+        return fallback_addons
 
 class ParsedDrug(BaseModel):
     drug_name: str | None = None
@@ -673,58 +638,23 @@ async def parse_prescription(file: UploadFile = File(...)):
             ParsedDrug(drug_name="Metformin", dosage="500mg", frequency="Daily")
         ])
 
-    api_key = os.getenv("API_Key", "")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="Google API Key not found.")
-
     try:
         file_bytes = await file.read()
-        import base64
         base64_data = base64.b64encode(file_bytes).decode('utf-8')
         mime_type = file.content_type or "image/jpeg"
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": PARSE_PROMPT},
-                {
-                    "inline_data": {
-                        "mime_type": mime_type,
-                        "data": base64_data
-                    }
-                }
-            ]
-        }],
-        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
-    }
-
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
-                json=payload,
-            )
-        
-        response_data = response.json()
-        
-        if "error" in response_data:
-            logging.error(f"Gemini API Error: {response_data['error']}")
-            raise HTTPException(status_code=502, detail="Gemini API returned an error.")
+        parsed = await generate_structured_json(
+            PARSE_PROMPT,
+            image_base64=base64_data,
+            mime_type=mime_type,
+            temperature=0.1,
+            offline_fallback={"medications": []},
+        )
+        return ParsePrescriptionResponse(**parsed)
 
-        raw_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
-        
-        # Robust JSON extraction
-        import re
-        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        if not json_match:
-            logging.error(f"Failed to find JSON in AI response. Raw output:\n{raw_text}")
-            raise HTTPException(status_code=422, detail="AI did not return valid JSON.")
-            
-        json_str = json_match.group(0)
-        return ParsePrescriptionResponse(**json.loads(json_str))
-        
     except Exception as e:
         logging.error(f"Parse Endpoint Exception: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Parsing failed: {str(e)}")
@@ -739,7 +669,7 @@ async def analyze_medication(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     """
-    Accepts a base64-encoded JPEG. Calls Gemini API, applies Risk Detection Layer,
+    Accepts a base64-encoded JPEG. Calls the configured AI provider, applies Risk Detection Layer,
     and returns structured JSON for the React frontend.
     """
     
