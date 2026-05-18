@@ -1058,6 +1058,29 @@ def pilot_export(days: int = 7, db: Session = Depends(get_db), current_user: mod
             for f in feedback_rows
         ],
     }
+
+@app.get("/pilot/export/csv")
+def pilot_export_csv(days: int = 7, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Export user-scoped pilot records as CSV text blocks."""
+    data = pilot_export(days=days, db=db, current_user=current_user)
+    import csv
+    import io
+
+    def to_csv(rows: list[dict]) -> str:
+        if not rows:
+            return ""
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+        return output.getvalue()
+
+    return {
+        "window_days": data["window_days"],
+        "adherence_csv": to_csv(data["adherence_logs"]),
+        "symptoms_csv": to_csv(data["symptom_logs"]),
+        "feedback_csv": to_csv(data["clinical_feedback"]),
+    }
 @app.get("/pilot/report")
 def pilot_report(days: int = 7, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     """Unified pilot-readout endpoint for quick weekly reporting."""

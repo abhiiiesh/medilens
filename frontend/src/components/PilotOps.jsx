@@ -7,6 +7,7 @@ export default function PilotOps({ token, onBack }) {
   const [report, setReport] = useState(null)
   const [summary, setSummary] = useState(null)
   const [cohort, setCohort] = useState(null)
+  const [cohortError, setCohortError] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -28,8 +29,14 @@ export default function PilotOps({ token, onBack }) {
       if (r2.ok) setSummary(await r2.json())
       else setSummary(null)
 
-      if (r3.ok) setCohort(await r3.json())
-      else setCohort(null)
+      if (r3.ok) {
+        setCohort(await r3.json())
+        setCohortError(null)
+      } else {
+        setCohort(null)
+        if (r3.status === 403) setCohortError('Cohort metrics require caregiver/admin access.')
+        else setCohortError('Cohort metrics unavailable.')
+      }
     } catch (e) {
       setError(e.message)
     } finally {
@@ -61,6 +68,27 @@ export default function PilotOps({ token, onBack }) {
     const a = document.createElement('a')
     a.href = url
     a.download = `pilot_report_${days}d.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const downloadCsvBundle = async () => {
+    const res = await fetch(`${API_BASE_URL}/pilot/export/csv?days=${days}`, { headers })
+    if (!res.ok) return alert('CSV export failed')
+    const data = await res.json()
+    const content = [
+      '# adherence.csv',
+      data.adherence_csv || '',
+      '# symptoms.csv',
+      data.symptoms_csv || '',
+      '# feedback.csv',
+      data.feedback_csv || '',
+    ].join('\n')
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `pilot_export_${days}d_csv_bundle.txt`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -113,10 +141,12 @@ export default function PilotOps({ token, onBack }) {
           <p>Feedback Avg Rating: <b>{cohort.clinical_feedback?.avg_rating ?? 'N/A'}</b></p>
         </div>
       )}
+      {cohortError && <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 p-3 rounded-xl mb-6">{cohortError}</div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <button onClick={downloadExport} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2"><Download size={16}/>Export Pilot JSON</button>
         <button onClick={downloadMarkdown} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2"><Download size={16}/>Download MD Report</button>
+        <button onClick={downloadCsvBundle} className="w-full bg-violet-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2"><Download size={16}/>Export CSV Bundle</button>
       </div>
     </div>
   )

@@ -18,6 +18,7 @@ MediLens is a medication safety assistant for elderly and visually-impaired user
 - Pilot Ops frontend screen for live reliability/outcomes/cohort monitoring + export
 - Pilot raw-data export endpoint (`/pilot/export`)
 - Pilot markdown report endpoint (`/pilot/report/markdown`) + one-click download in Pilot Ops UI
+- Pilot CSV bundle export endpoint (`/pilot/export/csv`) + one-click download in Pilot Ops UI
 
 ## AI providers
 Backend supports three modes via environment variable `AI_PROVIDER`:
