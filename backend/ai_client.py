@@ -78,17 +78,19 @@ async def generate_structured_json(prompt: str, *, image_base64: str | None = No
 
     if AI_PROVIDER == "gemma":
         full_prompt = prompt
+        gemma_payload: dict[str, Any] = {
+            "model": GEMMA_MODEL,
+            "prompt": full_prompt,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": temperature},
+        }
+        # Ollama-compatible multimodal payload for Gemma vision-capable local models.
         if image_base64:
-            full_prompt += "\n\n[Image provided separately; multimodal adapter required for local vision mode.]"
+            gemma_payload["images"] = [image_base64]
         data = await _post_with_retries(
             GEMMA_ENDPOINT,
-            {
-                "model": GEMMA_MODEL,
-                "prompt": full_prompt,
-                "stream": False,
-                "format": "json",
-                "options": {"temperature": temperature},
-            },
+            gemma_payload,
             timeout=AI_TIMEOUT_SECONDS,
             trace_id=trace_id,
         )

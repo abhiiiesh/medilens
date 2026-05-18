@@ -11,6 +11,6 @@
 3. ✅ Add multilingual preprocessing prompt instruction for English-normalized extraction.
 
 ## Sprint 3
-1. True multimodal Gemma local path (not text-only adapter).
+1. ✅ True multimodal Gemma local path baseline (Ollama-compatible `images` payload support).
 2. ✅ Clinical reviewer feedback loop baseline (`/feedback/clinical` submit + list).
-3. Pilot with 5-10 users and capture UX reliability metrics.
+3. ✅ Pilot metrics baseline endpoint (`/pilot/metrics`) for adherence/symptom/feedback outcomes.

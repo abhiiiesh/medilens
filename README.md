@@ -11,11 +11,13 @@ MediLens is a medication safety assistant for elderly and visually-impaired user
 - Pharmacy inventory radar + checkout simulation
 - Telemetry summary endpoint for analyze reliability metrics (`/telemetry/summary`)
 - Clinical feedback loop endpoints for safety/quality review (`/feedback/clinical`)
+- Pilot outcome metrics endpoint (`/pilot/metrics`)
 
 ## AI providers
 Backend supports three modes via environment variable `AI_PROVIDER`:
 - `gemini` (default): Gemini API path
 - `gemma`: local Gemma path via Ollama-compatible endpoint
+- `gemma`: local Gemma path via Ollama-compatible endpoint (supports multimodal `images` payload for vision-capable local models)
 - `offline`: deterministic safe fallback for low-connectivity demos
 
 ### AI env vars
