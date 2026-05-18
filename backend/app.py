@@ -1,8 +1,11 @@
 import os
 import json
 import re
+import time
+import base64
+import binascii
 import httpx
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from pydantic import BaseModel
@@ -15,7 +18,7 @@ from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
 import auth
 import rag_database
-import rag_database
+from ai_client import generate_structured_json
 
 # find_dotenv() traverses up the directory tree to find the .env file
 load_dotenv(find_dotenv())
@@ -27,7 +30,7 @@ app = FastAPI(title="MediLens API - Production", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -128,6 +131,18 @@ class PharmacyResponse(BaseModel):
     in_stock: bool
     price: str | None = None
 
+class ClinicalFeedbackCreate(BaseModel):
+    case_type: str = "analyze"
+    model_output_summary: str
+    reviewer_role: str = "patient"
+    rating: int
+    is_safe: str = "unknown"
+    comments: str | None = None
+
+class ClinicalFeedbackResponse(ClinicalFeedbackCreate):
+    id: int
+    created_at: str | None = None
+
 # ---------------------------------------------------------------------------
 # Risk Detection Layer (Middleware Guardrail)
 # ---------------------------------------------------------------------------
@@ -136,6 +151,36 @@ HIGH_RISK_KEYWORDS = [
     "overdose", "insulin", "anticoagulant", "chemotherapy", "opioid", 
     "warfarin", "methotrexate", "fentanyl"
 ]
+
+TELEMETRY = {
+    "analyze_total": 0,
+    "analyze_success": 0,
+    "analyze_fail": 0,
+    "analyze_high_risk": 0,
+    "analyze_low_quality_rejects": 0,
+    "latency_ms_samples": [],
+}
+
+def _record_latency(ms: float):
+    TELEMETRY["latency_ms_samples"].append(ms)
+    # Keep bounded in-memory samples for lightweight MVP telemetry.
+    if len(TELEMETRY["latency_ms_samples"]) > 500:
+        TELEMETRY["latency_ms_samples"] = TELEMETRY["latency_ms_samples"][-500:]
+
+def _image_quality_precheck(image_base64: str) -> tuple[bool, str | None]:
+    """Simple edge-safe quality guardrail for low-connectivity MVP deployments.
+    This checks payload validity and a minimum byte-size threshold as a proxy for
+    very blurry/over-compressed captures.
+    """
+    if not image_base64:
+        return False, "Image payload is empty."
+    try:
+        raw = base64.b64decode(image_base64, validate=True)
+    except (binascii.Error, ValueError):
+        return False, "Image payload is not valid base64."
+    if len(raw) < 12_000:
+        return False, "Image quality is too low or too compressed. Please retake with better lighting and focus."
+    return True, None
 
 def apply_risk_detection(response_data: dict) -> dict:
     """Scans the AI output for high-risk medications and modifies the payload if detected.
@@ -686,17 +731,21 @@ async def parse_prescription(file: UploadFile = File(...)):
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_medication(
+    request_ctx: Request,
     request: AnalyzeRequest, 
     db: Session = Depends(get_db),
     # Temporarily optional to support the current frontend during transition, 
     # but defaults to real DB integration when token is provided.
-    current_user: models.User | None = Depends(auth.get_optional_current_user)
+    current_user: models.User = Depends(auth.get_current_user)
 ):
     """
     Accepts a base64-encoded JPEG. Calls Gemini API, applies Risk Detection Layer,
     and returns structured JSON for the React frontend.
     """
     
+    TELEMETRY["analyze_total"] += 1
+    start = time.perf_counter()
+
     # DEMO MODE fallback
     if os.getenv("DEMO_MODE", "false").lower() == "true":
         demo_payload = {
@@ -709,81 +758,190 @@ async def analyze_medication(
             "is_high_risk": False
         }
         safe_demo_payload = apply_risk_detection(demo_payload)
+        TELEMETRY["analyze_success"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
         return AnalyzeResponse(**safe_demo_payload)
 
-    # Check API Key from the .env file
-    api_key = os.getenv("API_Key", "")
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="Google API Key not found. Please ensure API_Key is set in your .env file."
+    quality_ok, quality_msg = _image_quality_precheck(request.image_base64)
+    if not quality_ok:
+        TELEMETRY["analyze_low_quality_rejects"] += 1
+        TELEMETRY["analyze_fail"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
+        return AnalyzeResponse(
+            is_medication=False,
+            confidence_score=0.0,
+            drug_name=None,
+            dose_plain=None,
+            instructions=None,
+            warnings=[quality_msg or "Image quality too low."],
+            interaction_alert=None,
+            speak_text="I couldn't read the label clearly. Please move closer, improve lighting, and retake the photo.",
+            is_high_risk=True,
         )
 
     # Pull medications and RAG context directly from the persistent database
     user_meds = []
     rag_contexts = []
-    if current_user:
-        meds = db.query(models.Medication).filter(models.Medication.owner_id == current_user.id).all()
-        for m in meds:
-            user_meds.append(m.drug_name)
-            rag_contexts.append(f"Knowledge for {m.drug_name}:\n{rag_database.retrieve_drug_context(m.drug_name)}")
+    meds = db.query(models.Medication).filter(models.Medication.owner_id == current_user.id).all()
+    for m in meds:
+        user_meds.append(m.drug_name)
+        rag_contexts.append(f"Knowledge for {m.drug_name}:\n{rag_database.retrieve_drug_context(m.drug_name)}")
 
     meds_str = ", ".join(user_meds) if user_meds else "none listed"
     rag_str = "\n".join(rag_contexts) if rag_contexts else "No specific ground truth database context."
 
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": SYSTEM_PROMPT + "\n\n" + USER_PROMPT_TEMPLATE.format(medications=meds_str, grounded_context=rag_str)},
-                {
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": request.image_base64
-                    }
-                }
-            ]
-        }],
-        "generationConfig": {
-            "temperature": 0.1,
-            "responseMimeType": "application/json"
-        }
-    }
+    prompt = SYSTEM_PROMPT + "\n\n" + USER_PROMPT_TEMPLATE.format(
+        medications=meds_str,
+        grounded_context=rag_str
+    ) + "\n\nIf the visible text is in a non-English language, translate it to English before extraction."
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
-                json=payload,
-            )
+        parsed_json = await generate_structured_json(
+            prompt,
+            image_base64=request.image_base64,
+            mime_type="image/jpeg",
+            temperature=0.1,
+            trace_id=request_ctx.headers.get("X-Request-ID"),
+        )
 
-        if response.status_code == 429:
-            raise HTTPException(status_code=429, detail="Google API Quota Exceeded. Please enable billing or set DEMO_MODE=true in .env")
-            
-        if response.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Gemini API error: {response.text}")
+        # If it's a medication, apply risk detection
+        if parsed_json.get("is_medication", True):
+            parsed_json = apply_risk_detection(parsed_json)
+        if parsed_json.get("is_high_risk"):
+            TELEMETRY["analyze_high_risk"] += 1
 
-        response_data = response.json()
-        try:
-            raw_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
-            # Clean markdown formatting if present
-            raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-            parsed_json = json.loads(raw_text)
-            
-            # If it's a medication, apply risk detection
-            if parsed_json.get("is_medication", True):
-                parsed_json = apply_risk_detection(parsed_json)
-                
-            return AnalyzeResponse(**parsed_json)
-            
-        except (KeyError, IndexError) as e:
-            raise HTTPException(status_code=500, detail="Unexpected response structure from AI.")
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=422, detail="AI returned invalid JSON format.")
-            
+        TELEMETRY["analyze_success"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
+        return AnalyzeResponse(**parsed_json)
+
     except HTTPException:
+        TELEMETRY["analyze_fail"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
         raise
     except Exception as e:
+        TELEMETRY["analyze_fail"] += 1
+        _record_latency((time.perf_counter() - start) * 1000)
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+@app.get("/telemetry/summary")
+def telemetry_summary(current_user: models.User = Depends(auth.get_current_user)):
+    samples = TELEMETRY["latency_ms_samples"]
+    p95 = sorted(samples)[int(0.95 * (len(samples) - 1))] if len(samples) > 1 else (samples[0] if samples else 0.0)
+    return {
+        "analyze_total": TELEMETRY["analyze_total"],
+        "analyze_success": TELEMETRY["analyze_success"],
+        "analyze_fail": TELEMETRY["analyze_fail"],
+        "analyze_low_quality_rejects": TELEMETRY["analyze_low_quality_rejects"],
+        "analyze_high_risk": TELEMETRY["analyze_high_risk"],
+        "success_rate": round((TELEMETRY["analyze_success"] / TELEMETRY["analyze_total"]), 4) if TELEMETRY["analyze_total"] else 0.0,
+        "p95_latency_ms": round(p95, 2),
+        "samples": len(samples),
+    }
+
+@app.post("/feedback/clinical", response_model=ClinicalFeedbackResponse)
+def add_clinical_feedback(
+    payload: ClinicalFeedbackCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    if payload.rating < 1 or payload.rating > 5:
+        raise HTTPException(status_code=400, detail="rating must be between 1 and 5")
+    if payload.is_safe not in {"yes", "no", "unknown"}:
+        raise HTTPException(status_code=400, detail="is_safe must be one of yes/no/unknown")
+
+    row = models.ClinicalFeedback(
+        user_id=current_user.id,
+        case_type=payload.case_type,
+        model_output_summary=payload.model_output_summary[:500],
+        reviewer_role=payload.reviewer_role,
+        rating=payload.rating,
+        is_safe=payload.is_safe,
+        comments=(payload.comments[:1000] if payload.comments else None),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return ClinicalFeedbackResponse(
+        id=row.id,
+        case_type=row.case_type,
+        model_output_summary=row.model_output_summary,
+        reviewer_role=row.reviewer_role,
+        rating=row.rating,
+        is_safe=row.is_safe,
+        comments=row.comments,
+        created_at=str(row.created_at),
+    )
+
+@app.get("/feedback/clinical")
+def list_clinical_feedback(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    rows = (
+        db.query(models.ClinicalFeedback)
+        .filter(models.ClinicalFeedback.user_id == current_user.id)
+        .order_by(models.ClinicalFeedback.created_at.desc())
+        .limit(min(max(limit, 1), 200))
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "case_type": r.case_type,
+            "reviewer_role": r.reviewer_role,
+            "rating": r.rating,
+            "is_safe": r.is_safe,
+            "comments": r.comments,
+            "created_at": str(r.created_at),
+        }
+        for r in rows
+    ]
+
+@app.get("/pilot/metrics")
+def pilot_metrics(days: int = 7, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    from datetime import datetime, timedelta
+    since = datetime.utcnow() - timedelta(days=max(1, min(days, 90)))
+    adherences = db.query(models.AdherenceLog).filter(
+        models.AdherenceLog.user_id == current_user.id,
+        models.AdherenceLog.timestamp >= since
+    ).all()
+    symptoms = db.query(models.SymptomLog).filter(
+        models.SymptomLog.user_id == current_user.id,
+        models.SymptomLog.timestamp >= since
+    ).all()
+    feedback_rows = db.query(models.ClinicalFeedback).filter(
+        models.ClinicalFeedback.user_id == current_user.id,
+        models.ClinicalFeedback.created_at >= since
+    ).all()
+
+    taken = sum(1 for a in adherences if (a.status or "").lower() == "taken")
+    missed = sum(1 for a in adherences if (a.status or "").lower() == "missed")
+    adherence_rate = round((taken / (taken + missed)), 4) if (taken + missed) else 0.0
+
+    avg_symptom = round(sum(s.severity_score for s in symptoms) / len(symptoms), 2) if symptoms else None
+    feedback_count = len(feedback_rows)
+    avg_rating = round(sum(f.rating for f in feedback_rows) / feedback_count, 2) if feedback_count else None
+    unsafe_flags = sum(1 for f in feedback_rows if (f.is_safe or "").lower() == "no")
+
+    return {
+        "window_days": max(1, min(days, 90)),
+        "adherence": {
+            "logs_total": len(adherences),
+            "taken": taken,
+            "missed": missed,
+            "adherence_rate": adherence_rate,
+        },
+        "symptoms": {
+            "logs_total": len(symptoms),
+            "avg_severity": avg_symptom,
+        },
+        "clinical_feedback": {
+            "entries": feedback_count,
+            "avg_rating": avg_rating,
+            "unsafe_flags": unsafe_flags,
+        }
+    }
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
