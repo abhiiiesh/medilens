@@ -131,6 +131,18 @@ class PharmacyResponse(BaseModel):
     in_stock: bool
     price: str | None = None
 
+class ClinicalFeedbackCreate(BaseModel):
+    case_type: str = "analyze"
+    model_output_summary: str
+    reviewer_role: str = "patient"
+    rating: int
+    is_safe: str = "unknown"
+    comments: str | None = None
+
+class ClinicalFeedbackResponse(ClinicalFeedbackCreate):
+    id: int
+    created_at: str | None = None
+
 # ---------------------------------------------------------------------------
 # Risk Detection Layer (Middleware Guardrail)
 # ---------------------------------------------------------------------------
@@ -825,6 +837,66 @@ def telemetry_summary(current_user: models.User = Depends(auth.get_current_user)
         "p95_latency_ms": round(p95, 2),
         "samples": len(samples),
     }
+
+@app.post("/feedback/clinical", response_model=ClinicalFeedbackResponse)
+def add_clinical_feedback(
+    payload: ClinicalFeedbackCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    if payload.rating < 1 or payload.rating > 5:
+        raise HTTPException(status_code=400, detail="rating must be between 1 and 5")
+    if payload.is_safe not in {"yes", "no", "unknown"}:
+        raise HTTPException(status_code=400, detail="is_safe must be one of yes/no/unknown")
+
+    row = models.ClinicalFeedback(
+        user_id=current_user.id,
+        case_type=payload.case_type,
+        model_output_summary=payload.model_output_summary[:500],
+        reviewer_role=payload.reviewer_role,
+        rating=payload.rating,
+        is_safe=payload.is_safe,
+        comments=(payload.comments[:1000] if payload.comments else None),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return ClinicalFeedbackResponse(
+        id=row.id,
+        case_type=row.case_type,
+        model_output_summary=row.model_output_summary,
+        reviewer_role=row.reviewer_role,
+        rating=row.rating,
+        is_safe=row.is_safe,
+        comments=row.comments,
+        created_at=str(row.created_at),
+    )
+
+@app.get("/feedback/clinical")
+def list_clinical_feedback(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    rows = (
+        db.query(models.ClinicalFeedback)
+        .filter(models.ClinicalFeedback.user_id == current_user.id)
+        .order_by(models.ClinicalFeedback.created_at.desc())
+        .limit(min(max(limit, 1), 200))
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "case_type": r.case_type,
+            "reviewer_role": r.reviewer_role,
+            "rating": r.rating,
+            "is_safe": r.is_safe,
+            "comments": r.comments,
+            "created_at": str(r.created_at),
+        }
+        for r in rows
+    ]
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

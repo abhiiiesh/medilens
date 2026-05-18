@@ -12,5 +12,5 @@
 
 ## Sprint 3
 1. True multimodal Gemma local path (not text-only adapter).
-2. Clinical reviewer feedback loop for warnings quality.
+2. ✅ Clinical reviewer feedback loop baseline (`/feedback/clinical` submit + list).
 3. Pilot with 5-10 users and capture UX reliability metrics.
