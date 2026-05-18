@@ -1,16 +1,23 @@
-import argparse, json
+import argparse
+import json
 
 GATES = {
+    "cases_scored": (">=", 100),
+    "missing_predictions": ("<=", 0),
     "high_risk_recall": (">=", 0.95),
     "false_reassurance_rate": ("<=", 0.02),
+    "non_med_false_positive_rate": ("<=", 0.05),
     "med_detection_f1": (">=", 0.90),
     "drug_name_exact_match_acc": (">=", 0.85),
+    "multilingual_drug_name_exact_match_acc": (">=", 0.75),
 }
+
 
 def passed(op, v, t):
     return v >= t if op == ">=" else v <= t
 
-p = argparse.ArgumentParser()
+
+p = argparse.ArgumentParser(description="Validate MediLens metrics against submission readiness gates.")
 p.add_argument("--metrics", required=True, help="Path to metrics JSON from run_eval.py")
 a = p.parse_args()
 

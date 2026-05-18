@@ -7,7 +7,7 @@ This file records what is complete versus pending before claiming production or 
 Status: **Not complete**.
 
 - `evaluation/data/benchmark_v1.csv` currently contains only the header row, so the required 100+ real-case benchmark has not been collected yet.
-- `evaluation/results.latest.json` currently reports `cases_scored: 4`, so the latest metrics are from a tiny sample run rather than a real benchmark.
+- `evaluation/results.latest.json` currently reports `cases_scored: 4` and fails the new `cases_scored >= 100` gate, so the latest metrics are from a tiny sample run rather than a real benchmark.
 - `evaluation/responsible_ai_results.md` is still an unfilled evidence table.
 - `evaluation/error_analysis.md` is still a template with placeholder categories and zero observed failures.
 
