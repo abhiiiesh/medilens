@@ -943,5 +943,24 @@ def pilot_metrics(days: int = 7, db: Session = Depends(get_db), current_user: mo
         }
     }
 
+@app.get("/pilot/report")
+def pilot_report(days: int = 7, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Unified pilot-readout endpoint for quick weekly reporting."""
+    metrics = pilot_metrics(days=days, db=db, current_user=current_user)
+    telemetry = telemetry_summary(current_user=current_user)
+    feedback_preview = list_clinical_feedback(limit=10, db=db, current_user=current_user)
+    return {
+        "window_days": metrics["window_days"],
+        "reliability": {
+            "analyze_success_rate": telemetry["success_rate"],
+            "analyze_p95_latency_ms": telemetry["p95_latency_ms"],
+            "analyze_total": telemetry["analyze_total"],
+            "analyze_fail": telemetry["analyze_fail"],
+            "low_quality_rejects": telemetry["analyze_low_quality_rejects"],
+        },
+        "outcomes": metrics,
+        "latest_feedback": feedback_preview,
+    }
+
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

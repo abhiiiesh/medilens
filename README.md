@@ -12,6 +12,7 @@ MediLens is a medication safety assistant for elderly and visually-impaired user
 - Telemetry summary endpoint for analyze reliability metrics (`/telemetry/summary`)
 - Clinical feedback loop endpoints for safety/quality review (`/feedback/clinical`)
 - Pilot outcome metrics endpoint (`/pilot/metrics`)
+- Unified pilot reporting endpoint (`/pilot/report`)
 
 ## AI providers
 Backend supports three modes via environment variable `AI_PROVIDER`:
@@ -54,3 +55,4 @@ See `notebooks/ONE_CLICK_DEMO.md`.
 
 ## Direct next steps
 Execution roadmap is documented in `ROADMAP_NEXT.md`.
+Pilot reporting template/scripts are available in `evaluation/pilot_report_template.md` and `evaluation/build_pilot_report.py`.
