@@ -1,72 +1,142 @@
-# MediLens: Edge Medication Intelligence for People
+# 🔬 MediLens — AI Medication Intelligence
 
-MediLens is a medication safety assistant that helps people understand medication labels, prescriptions, food interactions, and health records in plain language.
+> **Gemma 4 Good Hackathon Submission** — Health & Sciences Track
 
-## Key capabilities
-- Medication label analysis from camera image
-- Risk guardrails for high-risk drugs and low-confidence outputs
-- Medication and adherence tracking
-- Health memory (allergies + conditions)
-- Food safety analysis against user profile
-- Pharmacy inventory radar + checkout simulation
-- Telemetry summary endpoint for analyze reliability metrics (`/telemetry/summary`)
-- Clinical feedback loop endpoints for safety/quality review (`/feedback/clinical`)
-- Clinical feedback summary endpoint for reviewer analytics (`/feedback/clinical/summary`)
-- Pilot outcome metrics endpoint (`/pilot/metrics`)
-- Pilot cohort metrics endpoint for reviewer/admin rollups (`/pilot/metrics/cohort`)
-- Unified pilot reporting endpoint (`/pilot/report`)
-- Pilot Ops frontend screen for live reliability/outcomes/cohort monitoring + export
-- Pilot raw-data export endpoint (`/pilot/export`)
-- Pilot markdown report endpoint (`/pilot/report/markdown`) + one-click download in Pilot Ops UI
-- Pilot CSV bundle export endpoint (`/pilot/export/csv`) + one-click download in Pilot Ops UI
+MediLens is a multimodal AI health assistant powered by **Gemma 4 (gemma-4-31b-it)** that helps patients safely identify medications, parse handwritten prescriptions, check food safety, and build a personal health memory — all from their phone.
 
-## AI providers
-Backend AI features route through a shared provider layer controlled by `AI_PROVIDER`:
-- `gemini` (default): Gemini API path for cloud demos
-- `gemma`: local Gemma path via an Ollama-compatible endpoint, including multimodal `images` payloads for vision-capable local models
-- `offline`: deterministic safe fallback for low-connectivity demos
+![MediLens Banner](docs/cover.png)
 
-### AI env vars
-- `AI_PROVIDER=gemini|gemma|offline`
-- `API_Key=<google key>` or `GOOGLE_API_KEY=<google key>` (gemini mode)
-- `GEMMA_ENDPOINT=http://127.0.0.1:11434/api/generate` (gemma mode)
-- `GEMMA_MODEL=gemma3:4b` (gemma mode)
-- `AI_TIMEOUT_SECONDS=45`
-- `AI_MAX_RETRIES=2`
-- `ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
+## 🌟 Key Features
 
-### Local Gemma via Ollama
-```bash
-ollama serve
-ollama pull gemma3:4b
-cd backend
-AI_PROVIDER=gemma GEMMA_MODEL=gemma3:4b python app.py
+| Feature | How It Works |
+|---------|-------------|
+| 📸 **Identify Medication** | Point camera at any pill bottle → Gemma 4 reads label in plain English, flags high-risk drugs, speaks result aloud |
+| 📄 **Prescription OCR** | Upload a photo of a handwritten prescription → Gemma 4 extracts all medications, auto-fills scheduling form |
+| 🍎 **Food as Medicine** | Photograph your meal → cross-referenced against your allergies & medications for interaction warnings |
+| 🧠 **Health Memory Vault** | Upload lab reports & discharge docs → Gemma 4 extracts structured health facts (allergies, diagnoses, meds) |
+| 📊 **Longitudinal Insights** | Weekly correlation analysis between missed doses and reported symptoms |
+
+## 🏗️ Architecture
+
+```
+React Frontend (Vite + Tailwind)
+        ↕ REST API
+FastAPI Backend (Python 3.11)
+        ↕ Google Generative Language API
+Gemma 4 — gemma-4-31b-it
+  • 256K token context window
+  • Native multimodal (image + text)
+  • Structured JSON output
+  • Native function calling
+        ↕
+SQLite + SQLAlchemy (local health data)
+RAG Database (clinical pharmacology)
 ```
 
-## Quick start
-### Backend
-```bash
-cd backend
-python app.py
+## 🤖 Gemma 4 Usage
+
+All AI features call `gemma-4-31b-it` via the Google Generative Language API:
+
+```python
+# backend/app.py
+GEMMA4_MODEL = "gemma-4-31b-it"
+GEMMA4_API_BASE = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMMA4_MODEL}:generateContent"
 ```
 
-### Frontend
+**Why `gemma-4-31b-it`:**
+- Native multimodal vision for medication label + prescription photo analysis
+- 256K context window holds the full patient medication history + clinical RAG context in a single call
+- `responseMimeType: application/json` — structured output without fragile regex parsing
+- Apache 2.0 license — commercially deployable in healthcare settings
+
+## 🛡️ Safety Architecture
+
+- **Confidence Guardrail**: Rejects AI reads with `confidence_score < 0.90` rather than guessing
+- **High-Risk Keyword Scanner**: Flags warfarin, opioids, insulin, chemo agents with audible emergency warnings
+- **RAG Grounding**: All medication responses grounded against a pharmacological knowledge base
+- **Graceful Degradation**: Full feature fallback when no API key is present
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- Google AI Studio API Key (get one at [aistudio.google.com](https://aistudio.google.com))
+
+### Backend Setup
 ```bash
-cd frontend
+cd medilens/backend
+python -m venv venv
+venv\Scripts\activate          # Windows
+pip install -r requirements.txt
+
+# Create .env file
+echo "API_Key=YOUR_GOOGLE_AI_KEY" > .env
+
+uvicorn app:app --reload --port 8000
+```
+
+### Frontend Setup
+```bash
+cd medilens/frontend
 npm install
 npm run dev
 ```
 
-## Evaluation + Responsible AI
-See `evaluation/README.md` for formal metrics and `evaluation/responsible_ai_matrix.md` for safety testing matrix.
-Submission thresholds and acceptance gates are in `evaluation/SUBMISSION_GATES.md`.
-Use `evaluation/error_analysis.md` to track failures and mitigations.
-Use `evaluation/check_gates.py` to auto-validate metric thresholds after each benchmark run.
+Open http://localhost:5173
 
-## One-click judge demo
-See `notebooks/ONE_CLICK_DEMO.md`.
+### Demo Mode (No API Key)
+```bash
+# backend/.env
+DEMO_MODE=true
+```
+Full app works in demo mode with intelligent profile-aware responses — no API key required.
 
-## Direct next steps
-Execution roadmap is documented in `ROADMAP_NEXT.md`.
-Pilot reporting template/scripts are available in `evaluation/pilot_report_template.md` and `evaluation/build_pilot_report.py`.
-Benchmark progress tracker is available at `evaluation/benchmark_progress.py`.
+## 📁 Project Structure
+
+```
+medilens/
+├── backend/
+│   ├── app.py              # FastAPI server — all Gemma 4 endpoints
+│   ├── models.py           # SQLAlchemy models
+│   ├── auth.py             # JWT authentication
+│   ├── rag_database.py     # Clinical pharmacology RAG
+│   ├── database.py         # SQLite engine
+│   └── requirements.txt
+└── frontend/
+    └── src/
+        ├── App.jsx             # Camera scanner + state router
+        └── components/
+            ├── Dashboard.jsx       # Medication schedule + insights
+            ├── AddMedication.jsx   # Prescription OCR upload
+            ├── FoodScanner.jsx     # Food safety analysis
+            ├── Vault.jsx           # Health document vault
+            ├── PharmacyRadar.jsx   # Local pharmacy inventory
+            └── Settings.jsx        # Clinical profile editor
+```
+
+## 🔌 API Endpoints
+
+| Endpoint | Method | Description | Model |
+|----------|--------|-------------|-------|
+| `/analyze` | POST | Identify medication from camera image | Gemma 4 |
+| `/parse-prescription` | POST | OCR a handwritten prescription | Gemma 4 |
+| `/intelligence/food` | POST | Analyze food safety vs. patient profile | Gemma 4 |
+| `/vault/upload` | POST | Upload & extract health memory from document | Gemma 4 |
+| `/intelligence/insights` | GET | Generate longitudinal health insights | Gemma 4 |
+| `/medications` | GET/POST | Manage medication schedule | — |
+| `/pharmacy/inventory/{drug}` | GET | Find nearby pharmacies with stock | — |
+| `/orders` | GET/POST | Order medications for delivery | — |
+
+## 🏆 Track
+
+- **Impact Track: Health & Sciences** — Democratizing medication safety for elderly, visually impaired, and underserved populations
+- **Main Track** — Full multimodal agentic health application
+
+## 📜 License
+
+Apache 2.0 — same as Gemma 4 itself.
+
+---
+
+*Built for the [Gemma 4 Good Hackathon](https://www.kaggle.com/competitions/gemma-4-good-hackathon) · May 2026*
