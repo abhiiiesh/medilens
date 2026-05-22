@@ -1,7 +1,5 @@
 # 🔬 MediLens — AI Medication Intelligence
 
-> **Gemma 4 Good Hackathon Submission** — Health & Sciences Track
-
 MediLens is a multimodal AI health assistant powered by **Gemma 4 (gemma-4-31b-it)** that helps patients safely identify medications, parse handwritten prescriptions, check food safety, and build a personal health memory — all from their phone.
 
 ![MediLens Banner](docs/cover.png)
